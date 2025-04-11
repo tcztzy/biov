@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import itertools
 from typing import Callable
 from urllib.parse import unquote
 
@@ -52,34 +51,46 @@ class GFFDataFrame(DataFrame):
             fh.write("##gff-version 3\n")
             fh.write(gff_feature)
 
-    def attributes_to_columns(self) -> GFFDataFrame:
-        """Saving each attribute-tag to a single column.
-
-        Attribute column will be split by the tags in the single columns.
-        For this method only a pandas DataFrame and not a Gff3DataFrame
-        will be returned. Therefore, this data frame can not be saved as
-        gff3 file.
-        """
-        df = self.copy()[GFF3_COLUMNS]
-        attributes_dict = self["attributes"].apply(
-            lambda attributes: dict(kv.split("=") for kv in attributes.split(";"))
-        )
-        all_attributes = set(
-            itertools.chain.from_iterable(attributes_dict.apply(lambda d: d.keys()))
-        )
-        attributes = [
-            a
-            for a in itertools.chain(
-                GFF3_ATTRIBUTES, sorted(all_attributes - set(GFF3_ATTRIBUTES))
-            )
-            if a in all_attributes
-        ]
-        for attribute in attributes:
-            df[attribute] = attributes_dict.apply(lambda d: d.get(attribute)).apply(
-                lambda v: unquote(v) if isinstance(v, str) else v
-            )
-        return df  # pyright: ignore
+    @property
+    def attributes(self) -> DataFrame:
+        df = pd.json_normalize(
+            self["attributes"].apply(
+                lambda attributes: dict(kv.split("=") for kv in attributes.split(";"))
+            )  # type: ignore
+        ).map(lambda v: unquote(v) if isinstance(v, str) else v)
+        df.index = self.index
+        order: dict[str, int] = dict((a, i) for i, a in enumerate(GFF3_ATTRIBUTES))
+        columns = sorted(list(df.columns), key=lambda c: order.get(c, len(c)))
+        return df[columns]  # pyright: ignore
 
 
-def read_gff3(input_file: FilePath | ReadCsvBuffer[bytes] | ReadCsvBuffer[str]):
-    return GFFDataFrame(pd.read_table(input_file, comment="#", names=GFF3_COLUMNS))
+def read_gff3(
+    input_file: FilePath | ReadCsvBuffer[bytes] | ReadCsvBuffer[str], **kwargs
+):
+    """Read GFF3 files.
+
+    Parameters
+    ----------
+    input_file : str | os.PathLike | ReadableBuffer
+        support fsspec chain (available in pandas 3.0)
+    **kwargs
+        will pass to `pd.read_table`
+
+    Returns
+    -------
+    GFFDataFrame
+
+    Raises
+    ------
+    ValueError
+        if provided 'comment' parameter
+    """
+    if "comment" in kwargs:
+        raise ValueError("Parameter 'comment' is not allowed")
+    if "names" not in kwargs:
+        kwargs["names"] = GFF3_COLUMNS
+    if isinstance(input_file, str) and (
+        input_file.startswith("https://") or input_file.startswith("http://")
+    ):
+        input_file = "filecache::" + input_file
+    return GFFDataFrame(pd.read_table(input_file, comment="#", na_values=".", **kwargs))

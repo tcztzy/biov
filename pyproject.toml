@@ -1,6 +1,6 @@
 [project]
 name = "biov"
-version = "0.0.1"
+version = "0.0.2"
 description = "Add your description here"
 readme = "README.md"
 authors = [
@@ -8,6 +8,7 @@ authors = [
 ]
 requires-python = ">=3.11"
 dependencies = [
+    "fsspec[full]>=2025.3.2",
     "pandas>=2.2.3",
 ]
 
@@ -25,7 +26,7 @@ dev = [
 ]
 
 [tool.ruff.lint]
-extend-select = ["I"]
+extend-select = ["I", "T20"]
 
 [tool.pyright]
 venvPath = "."

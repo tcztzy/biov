@@ -1,3 +1,4 @@
+from io import StringIO
 from pathlib import Path
 from tempfile import NamedTemporaryFile
 
@@ -10,14 +11,6 @@ SAMPLE_GFF = """##gff-version 3
 chr1\t.\tgene\t100\t200\t.\t+\t.\tID=gene1;Name=TestGene;Dbxref=NCBI:123
 chr1\t.\texon\t150\t180\t.\t+\t.\tID=exon1;Parent=gene1
 """
-
-
-@pytest.fixture
-def sample_gff_file():
-    with NamedTemporaryFile(mode="w", suffix=".gff") as f:
-        f.write(SAMPLE_GFF)
-        f.flush()
-        yield f.name
 
 
 @pytest.fixture
@@ -39,8 +32,8 @@ def sample_gff_df():
     return GFFDataFrame(data)
 
 
-def test_read_gff3(sample_gff_file):
-    df = read_gff3(sample_gff_file)
+def test_read_gff3():
+    df = read_gff3(StringIO(SAMPLE_GFF))
     assert isinstance(df, GFFDataFrame)
     assert list(df.columns) == GFF3_COLUMNS
     assert len(df) == 2
@@ -66,7 +59,7 @@ def test_to_gff3(sample_gff_df):
 
 
 def test_attributes_to_columns(sample_gff_df):
-    df = sample_gff_df.attributes_to_columns()
+    df = sample_gff_df.attributes
     assert "ID" in df.columns
     assert "Name" in df.columns
     assert "Parent" in df.columns
