@@ -7,6 +7,8 @@ import pandas as pd
 from pandas import DataFrame
 from pandas._typing import FilePath, ReadCsvBuffer
 
+from .config import settings
+
 GFF3_COLUMNS = [
     "seqid",
     "source",
@@ -85,12 +87,23 @@ def read_gff3(
     ValueError
         if provided 'comment' parameter
     """
-    if "comment" in kwargs:
-        raise ValueError("Parameter 'comment' is not allowed")
+    for param in ("comment", "na_values"):
+        if param in kwargs:
+            raise ValueError(f"Parameter '{param}' is not allowed")
+    kwargs["comment"] = "#"
+    kwargs["na_values"] = "."
     if "names" not in kwargs:
         kwargs["names"] = GFF3_COLUMNS
-    if isinstance(input_file, str) and (
-        input_file.startswith("https://") or input_file.startswith("http://")
-    ):
-        input_file = "filecache::" + input_file
-    return GFFDataFrame(pd.read_table(input_file, comment="#", na_values=".", **kwargs))
+    if isinstance(input_file, str):
+        *protocols, path = input_file.split("::")
+        # https://github.com/pandas-dev/pandas/pull/60100
+        if any([protocol.startswith("tar://") for protocol in protocols]):
+            kwargs["compression"] = None
+        if (
+            settings.cache_http
+            and path.startswith(("https://", "http://"))
+            and len(protocols) == 0
+            or "filecache" != protocols[-1]
+        ):
+            input_file = "::".join([*protocols, "filecache", path])
+    return GFFDataFrame(pd.read_table(input_file, **kwargs))
