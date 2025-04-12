@@ -1,13 +1,14 @@
 [project]
 name = "biov"
-version = "0.0.3"
-description = "Add your description here"
+version = "0.0.4"
+description = "Next-generation development experience for computational molecular biology."
 readme = "README.md"
 authors = [
     { name = "Tang Ziya", email = "tcztzy@gmail.Com" }
 ]
 requires-python = ">=3.11"
 dependencies = [
+    "biopython>=1.85",
     "fsspec[full]>=2025.3.2",
     "pandas>=2.2.3",
     "pydantic-settings>=2.8.1",
