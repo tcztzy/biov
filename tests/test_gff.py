@@ -50,16 +50,32 @@ def test_gffdataframe_validation():
         GFFDataFrame(invalid_data)
 
 
-def test_to_gff3(sample_gff_df):
+def test_to_gff3(sample_gff_df: GFFDataFrame):
     with NamedTemporaryFile(mode="w", suffix=".gff") as f:
         sample_gff_df.to_gff3(f.name)
         content = Path(f.name).read_text()
-        assert content.startswith("##gff-version 3\n")
+        assert content.startswith("##gff-version 3")
         assert "chr1\t.\tgene\t100\t200" in content
+    sample_gff_df["hello"] = "world"
+    assert sample_gff_df.to_gff3() == SAMPLE_GFF
+    assert (
+        sample_gff_df.to_gff3(extra="merge")
+        == """##gff-version 3
+chr1\t.\tgene\t100\t200\t.\t+\t.\tID=gene1;Name=TestGene;Dbxref=NCBI:123;hello=world
+chr1\t.\texon\t150\t180\t.\t+\t.\tID=exon1;Parent=gene1;hello=world
+"""
+    )
+    assert (
+        sample_gff_df.to_gff3(extra="inplace")
+        == """##gff-version 3
+chr1\t.\tgene\t100\t200\t.\t+\t.\thello=world
+chr1\t.\texon\t150\t180\t.\t+\t.\thello=world
+"""
+    )
 
 
-def test_attributes_to_columns(sample_gff_df):
-    df = sample_gff_df.attributes
+def test_attributes_to_columns(sample_gff_df: GFFDataFrame):
+    df = sample_gff_df.attributes_to_columns()
     assert "ID" in df.columns
     assert "Name" in df.columns
     assert "Parent" in df.columns

@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import Callable
+from typing import Callable, Literal
 from urllib.parse import unquote
 
 import pandas as pd
@@ -8,6 +8,22 @@ from pandas import DataFrame
 from pandas._typing import FilePath, ReadCsvBuffer
 
 from .config import settings
+
+
+def quote(s: str) -> str:
+    return s.translate(
+        str.maketrans(
+            {  # type: ignore[arg-type]
+                ";": "%3B",
+                "=": "%3D",
+                "&": "%26",
+                ",": "%2C",
+                chr(0x7F): "%7F",
+                **{chr(i): f"%{i:x}".upper() for i in range(0x1F)},
+            }
+        )
+    )
+
 
 GFF3_COLUMNS = [
     "seqid",
@@ -46,12 +62,46 @@ class GFFDataFrame(DataFrame):
     def _constructor(self) -> Callable[..., GFFDataFrame]:
         return GFFDataFrame
 
-    def to_gff3(self, gff_file: FilePath) -> None:
-        df = self[GFF3_COLUMNS]
+    def to_gff3(
+        self,
+        gff_file: FilePath | None = None,
+        *,
+        extra: Literal["ignore", "merge", "inplace"] = "ignore",
+    ) -> str | None:
+        df = self[GFF3_COLUMNS].copy()
+        if extra != "ignore":
+            extra_fields = [
+                {k: v for k, v in e.items() if k not in GFF3_COLUMNS}
+                for e in self.to_dict(orient="records")
+            ]
+            if extra == "merge":
+                attributes_field = [
+                    a | e
+                    for a, e in zip(
+                        self.attributes.to_dict(orient="records"), extra_fields
+                    )
+                ]
+            else:
+                attributes_field = extra_fields
+            df["attributes"] = [
+                ";".join(
+                    f"{quote(k)}={quote(str(v))}"
+                    for k, v in r.items()
+                    if isinstance(k, str) and not pd.isna(v)
+                )
+                for r in attributes_field
+            ]
         gff_feature = df.to_csv(sep="\t", index=False, header=False)
+        if gff_file is None:
+            return f"""##gff-version 3\n{gff_feature}"""
         with open(gff_file, "w") as fh:
             fh.write("##gff-version 3\n")
             fh.write(gff_feature)
+            return None
+
+    @property
+    def version(self) -> str:
+        return "3"
 
     @property
     def attributes(self) -> DataFrame:
@@ -64,6 +114,14 @@ class GFFDataFrame(DataFrame):
         order: dict[str, int] = dict((a, i) for i, a in enumerate(GFF3_ATTRIBUTES))
         columns = sorted(list(df.columns), key=lambda c: order.get(c, len(c)))
         return df[columns]  # pyright: ignore
+
+    def attributes_to_columns(self) -> GFFDataFrame:
+        attributes = self.attributes
+        df = self.copy()
+        for c in attributes.columns:
+            if c not in GFF3_COLUMNS:
+                df[c] = attributes[c]
+        return df
 
 
 def read_gff3(
