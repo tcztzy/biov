@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import Callable, Literal
+from typing import Literal
 from urllib.parse import unquote
 
 import pandas as pd
@@ -57,10 +57,6 @@ class GFFDataFrame(DataFrame):
         for col in GFF3_COLUMNS:
             if col not in self.columns:
                 raise AttributeError(f"Column '{col}' is required")
-
-    @property
-    def _constructor(self) -> Callable[..., GFFDataFrame]:
-        return GFFDataFrame
 
     def to_gff3(
         self,
