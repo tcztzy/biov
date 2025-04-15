@@ -91,7 +91,7 @@ class GFFDataFrame(DataFrame):
                 )
                 for r in attributes_field
             ]
-        gff_feature = df.to_csv(sep="\t", index=False, header=False)
+        gff_feature = df.to_csv(sep="\t", na_rep=".", index=False, header=False)
         if gff_file is None:
             return f"""##gff-version 3\n{gff_feature}"""
         with open(gff_file, "w") as fh:

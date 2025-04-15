@@ -1,6 +1,6 @@
 [project]
 name = "biov"
-version = "0.0.6"
+version = "0.0.7"
 description = "Next-generation development experience for computational molecular biology."
 readme = "README.md"
 authors = [

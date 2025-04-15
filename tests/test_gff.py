@@ -17,13 +17,13 @@ chr1\t.\texon\t150\t180\t.\t+\t.\tID=exon1;Parent=gene1
 def sample_gff_df():
     data = {
         "seqid": ["chr1", "chr1"],
-        "source": [".", "."],
+        "source": [None, None],
         "type": ["gene", "exon"],
         "start": [100, 150],
         "end": [200, 180],
-        "score": [".", "."],
+        "score": [None, None],
         "strand": ["+", "+"],
-        "phase": [".", "."],
+        "phase": [None, None],
         "attributes": [
             "ID=gene1;Name=TestGene;Dbxref=NCBI:123",
             "ID=exon1;Parent=gene1",
