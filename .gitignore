@@ -9,3 +9,9 @@ wheels/
 # Virtual environments
 .venv
 .aider*
+
+# mkdocs
+site/
+
+# macOS
+.DS_Store

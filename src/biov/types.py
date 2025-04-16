@@ -1,3 +1,5 @@
+"""Types for BioV."""
+
 from typing import Any
 
 from Bio.Seq import Seq as _Seq
@@ -8,6 +10,8 @@ from pydantic_core import CoreSchema, core_schema
 
 
 class Seq(_Seq):
+    """Extended from Bio.Seq.Seq for pydantic validation and serialization."""
+
     @classmethod
     def __get_pydantic_core_schema__(
         cls, source_type: Any, handler: GetCoreSchemaHandler

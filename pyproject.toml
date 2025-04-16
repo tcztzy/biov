@@ -1,6 +1,6 @@
 [project]
 name = "biov"
-version = "0.0.8"
+version = "0.1.0"
 description = "Next-generation development experience for computational molecular biology."
 readme = "README.md"
 authors = [
@@ -24,6 +24,17 @@ packages = ["src/biov"]
 [dependency-groups]
 dev = [
     "pre-commit>=4.2.0",
+    { include-group = "docs" },
+    { include-group = "test" },
+]
+docs = [
+    "mkdocs>=1.6.1",
+    "mkdocs-material>=9.6.11",
+    "mkdocstrings[python]>=0.29.1",
+    "mkdocs-gen-files>=0.5",
+    "mkdocs-literate-nav>=0.6.2",
+]
+test = [
     "pytest>=8.3.5",
 ]
 
