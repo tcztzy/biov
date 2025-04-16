@@ -14,7 +14,5 @@ class Seq(_Seq):
     ) -> CoreSchema:
         return core_schema.no_info_plain_validator_function(
             _Seq,
-            serialization=core_schema.plain_serializer_function_ser_schema(
-                str, return_schema=core_schema.str_schema()
-            ),
+            serialization=core_schema.to_string_ser_schema(),
         )
