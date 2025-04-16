@@ -1,3 +1,9 @@
+"""Internal patches for BioV.
+
+Patches:
+    [`pandas.io.common.is_fsspec_url`](https://github.com/pandas-dev/pandas/pull/61041)
+"""
+
 import pandas.io.common
 
 # if pandas dependencies upgrade to 3.0, this patch could be removed

@@ -1,3 +1,5 @@
+"""Configuration module for BioV."""
+
 import os
 from pathlib import Path
 
@@ -6,6 +8,13 @@ from pydantic_settings import BaseSettings
 
 
 class Settings(BaseSettings, env_prefix="BIOV_"):
+    """Settings.
+
+    Attributes:
+        home: Custom cache directory
+        cache_http: Cache file from http or not
+    """
+
     home: Path | None = None
     cache_http: bool = True
 

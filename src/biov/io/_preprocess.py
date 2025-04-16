@@ -3,7 +3,7 @@ from typing import Any
 from ..config import settings
 
 
-def preprocessing(filepath_or_buffer: Any, **kwargs):
+def preprocessing(filepath_or_buffer: Any, **kwargs) -> tuple[Any, Any]:
     if isinstance(filepath_or_buffer, str):
         *protocols, path = filepath_or_buffer.split("::")
         # https://github.com/pandas-dev/pandas/pull/60100

@@ -1,6 +1,7 @@
+# ruff: noqa
 from pydantic import BaseModel, TypeAdapter
 
-from biov.types import Seq
+from biov.seq import Seq
 
 
 class A(BaseModel):

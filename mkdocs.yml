@@ -5,7 +5,6 @@ repo_url: https://github.com/tcztzy/biov
 theme:
   name: material
   features:
-    - navigation.tabs
     - navigation.indexes
     - content.code.annotate
   palette:

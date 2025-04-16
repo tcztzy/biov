@@ -39,7 +39,11 @@ test = [
 ]
 
 [tool.ruff.lint]
-extend-select = ["I", "T20"]
+preview = true
+extend-select = ["D", "DOC", "I", "PD", "S", "T20"]
+
+[tool.ruff.lint.pydocstyle]
+convention = "google"
 
 [tool.mypy]
 plugins = ['pydantic.mypy']

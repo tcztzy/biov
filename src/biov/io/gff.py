@@ -1,4 +1,4 @@
-"""Generic Feature Format Version 3
+"""Generic Feature Format Version 3.
 
 Specification:
     https://github.com/the-sequence-ontology/specifications/blob/master/gff3.md
@@ -19,6 +19,11 @@ if TYPE_CHECKING:
 
 
 def quote(s: str) -> str:
+    """GFF-specific quote function.
+
+    Returns:
+        Quoted string.
+    """
     return s.translate(
         str.maketrans(
             {  # type: ignore[arg-type]
@@ -61,6 +66,9 @@ def read_gff3(
     Returns:
         A BioDataFrame with at least 9 columns
 
+    Raises:
+        ValueError: if unintended parameters provided.
+
     Examples:
         You can directly pass HTTP url.
 
@@ -70,7 +78,6 @@ def read_gff3(
 
         >>> read_gff3("tar://IRGSP-1.0_representative/transcripts.gff::https://rapdb.dna.affrc.go.jp/download/archive/irgsp1/IRGSP-1.0_representative_2025-03-19.tar.gz")
     """
-
     for param in ("comment", "na_values"):
         if param in kwargs:
             raise ValueError(f"Parameter '{param}' is not allowed")
@@ -82,7 +89,7 @@ def read_gff3(
     filepath_or_buffer, kwargs = preprocessing(filepath_or_buffer, **kwargs)
 
     def explode(attributes: pd.Series):
-        df = pd.json_normalize(
+        attr_df = pd.json_normalize(
             attributes.apply(
                 lambda attrs: dict(
                     [unquote(i) for i in kv.split("=", maxsplit=1)]
@@ -92,18 +99,18 @@ def read_gff3(
                 else {}
             )  # type: ignore
         )
-        return df[[c for c in df.columns if c not in names]]
+        return attr_df[[c for c in attr_df.columns if c not in names]]
 
-    df: pd.DataFrame = pd.read_table(filepath_or_buffer, dtype={}, **kwargs)
-    df["start"] -= 1
+    raw_df: pd.DataFrame = pd.read_table(filepath_or_buffer, dtype={}, **kwargs)
+    raw_df["start"] -= 1
     if explode_attributes:
-        df = pd.concat(
-            [df[names[:-1]], explode(df[names[-1]])],  # pyright: ignore
+        raw_df = pd.concat(
+            [raw_df[names[:-1]], explode(raw_df[names[-1]])],  # pyright: ignore
             axis=1,
         )
     from ..dataframe import BioDataFrame
 
-    bdf = BioDataFrame(df)
+    bdf = BioDataFrame(raw_df)
     bdf._gff_columns = names
     return bdf
 
@@ -114,15 +121,38 @@ def to_gff3(
     *,
     attributes: str | list[str] | Literal[True] = True,
 ) -> str | None:
+    """Convert BioDataFrame to GFF3 format string or write to file.
+
+    Args:
+        self: The BioDataFrame to convert. Must have proper GFF columns defined.
+        path: File path or buffer to write to. If None, returns the GFF3 string.
+        attributes: Controls which columns are included in the GFF attributes field.
+            - True: Include all non-GFF columns as attributes (default)
+            - str: Include single column as attribute
+            - list[str]: Include specified columns as attributes
+
+    Returns:
+        If path is None, returns the GFF3 formatted string.
+        If path is provided, returns None after writing to file/buffer.
+
+    Raises:
+        ValueError: If the BioDataFrame is malformed for GFF3 export or required columns are missing.
+
+    Examples:
+        >>> df = BioDataFrame(...)  # with proper GFF columns
+        >>> gff_str = df.to_gff3()  # returns GFF3 string
+        >>> df.to_gff3("output.gff")  # writes to file
+        >>> df.to_gff3(attributes=["ID", "Name"])  # only include ID and Name in attributes
+    """
     names = self._gff_columns
     if len(names) != 9:
-        raise ValueError("Mal-formatted BioDataFrame for export to GFF3.")
+        raise ValueError("Malformed BioDataFrame for export to GFF3.")
     if attributes is True:
         attributes = [c for c in self.columns if c not in names]
     elif isinstance(attributes, str):
         attributes = [attributes]
-    df = self.copy()
-    df[names[3]] += 1
+    gff_df = self.copy()
+    gff_df[names[3]] += 1
     defaults = {
         1: "biov",  # source
         2: "gene",  # type
@@ -133,14 +163,14 @@ def to_gff3(
     for c in range(8):  # except attributes
         if (name := names[c]) not in self.columns:
             if (default := defaults.get(c)) is not None:
-                df[name] = default
+                gff_df[name] = default
             else:
                 raise ValueError(f"Column `{name}` is required for exporting to GFF.")
-    df = df[names[:-1]]
+    gff_df = gff_df[names[:-1]]
     if len(attributes) == 0:
-        df["attributes"] = pd.NA
+        gff_df["attributes"] = pd.NA
     else:
-        df["attributes"] = [
+        gff_df["attributes"] = [
             ";".join(
                 f"{quote(k)}={quote(str(v))}"
                 for k, v in r.items()
@@ -148,7 +178,7 @@ def to_gff3(
             )
             for r in self[attributes].to_dict(orient="records")  # pyright: ignore
         ]
-    gff_feature = df.to_csv(sep="\t", na_rep=".", index=False, header=False)
+    gff_feature = gff_df.to_csv(sep="\t", na_rep=".", index=False, header=False)
     content = f"""##gff-version 3\n{gff_feature}"""
     if path is None:
         return content
@@ -160,6 +190,21 @@ def to_gff3(
 
 
 class GFFMixin:
+    """Mixin class providing GFF3 format support for BioDataFrame.
+
+    This mixin adds GFF3-specific functionality including:
+    - Standard GFF3 column definitions
+    - Methods for converting to GFF3 format
+
+    Attributes:
+        _gff_columns: List of column names for GFF3 format. Defaults to standard GFF3 columns.
+                      Can be overridden by subclasses to support custom GFF3 variants.
+
+    Methods:
+        to_gff3: Convert DataFrame to GFF3 format string or file
+        to_gff: Alias for to_gff3
+    """
+
     _gff_columns: list[str] = GFF_COLUMNS
 
     to_gff3 = to_gff3
