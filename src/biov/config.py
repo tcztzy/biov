@@ -4,7 +4,24 @@ import os
 from pathlib import Path
 
 import fsspec.config
+from pydantic import Field
 from pydantic_settings import BaseSettings
+
+appname = __package__ or "biov"
+
+
+def get_default_home() -> Path:
+    """Get default BIOV_HOME.
+
+    Returns:
+        $XDG_CACHE_HOME/biov if XDG_CACHE_HOME set else determined by platformdirs
+    """
+    if (xdg_cache_home := os.getenv("XDG_CACHE_HOME")) is not None:
+        return Path(os.path.join(xdg_cache_home, appname))
+    else:
+        from platformdirs import PlatformDirs
+
+        return PlatformDirs(appname=appname).user_cache_path
 
 
 class Settings(BaseSettings, env_prefix="BIOV_"):
@@ -15,21 +32,11 @@ class Settings(BaseSettings, env_prefix="BIOV_"):
         cache_http: Cache file from http or not
     """
 
-    home: Path | None = None
+    home: Path = Field(default_factory=get_default_home)
     cache_http: bool = True
 
 
 settings = Settings()
 
-appname = __package__ or "biov"
 
-if settings.home is not None:
-    cache_storage = str(settings.home)
-elif (xdg_cache_home := os.getenv("XDG_CACHE_HOME")) is not None:
-    cache_storage = os.path.join(xdg_cache_home, appname)
-else:
-    from platformdirs import PlatformDirs
-
-    cache_storage = PlatformDirs(appname=appname).user_cache_dir
-
-fsspec.config.conf["filecache"] = {"cache_storage": cache_storage}
+fsspec.config.conf["filecache"] = {"cache_storage": str(settings.home)}

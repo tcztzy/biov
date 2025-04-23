@@ -132,8 +132,7 @@ def to_gff3(
             - list[str]: Include specified columns as attributes
 
     Returns:
-        If path is None, returns the GFF3 formatted string.
-        If path is provided, returns None after writing to file/buffer.
+        If path is not provided, returns the GFF3 formatted string, else returns None after writing to file/buffer.
 
     Raises:
         ValueError: If the BioDataFrame is malformed for GFF3 export or required columns are missing.

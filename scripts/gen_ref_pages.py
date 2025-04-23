@@ -9,7 +9,7 @@ nav = mkdocs_gen_files.nav.Nav()
 src = Path(__file__).parent.parent / "src"
 
 for path in sorted(src.rglob("*.py")):
-    if path.name.startswith("_"):
+    if path.name.startswith("_") and path.name != "__init__.py":
         continue
     module_path = path.relative_to(src).with_suffix("")
     doc_path = path.relative_to(src).with_suffix(".md")

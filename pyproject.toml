@@ -1,6 +1,6 @@
 [project]
 name = "biov"
-version = "0.1.0"
+version = "0.1.1"
 description = "Next-generation development experience for computational molecular biology."
 readme = "README.md"
 authors = [
@@ -12,7 +12,13 @@ dependencies = [
     "fsspec[full]>=2025.3.2",
     "pandas>=2.2.3",
     "pydantic-settings>=2.8.1",
+    "typeguard>=4.4.2",
+    "typer>=0.15.2",
+    "typing-extensions>=4.13.2",
 ]
+
+[project.scripts]
+blat = "biov.executables:blat_app"
 
 [build-system]
 requires = ["hatchling"]
