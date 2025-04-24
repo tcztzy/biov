@@ -100,7 +100,10 @@ def _handle_seq(path: str, stack: ExitStack) -> str:
     """
     if (
         _SUB_RANGE_PATTERN.match(path) is None
-        and not Path(path).exists()
+        and (
+            len(path) >= 256  # Maximum file name length
+            or not Path(path).exists()
+        )
         and re.match(
             rf"^([{unambiguous_dna_letters}]+|[{unambiguous_rna_letters}]+|[{protein_letters}]+)$",
             path,
@@ -108,7 +111,7 @@ def _handle_seq(path: str, stack: ExitStack) -> str:
         )
     ):
         f = stack.enter_context(NamedTemporaryFile("w+t", suffix=".fa"))
-        name = path if len(path) <= 11 else f"{path[:11]}_{len(path)}"
+        name = path if len(path) <= 23 else f"{path[:11]}_{len(path)}"
         f.write(f">{name}\n{path}")
         f.flush()
         path = f.name
@@ -447,7 +450,7 @@ def blat(
             queries.append(_q)
         if len(queries) > 1:
             names_file = stack.enter_context(NamedTemporaryFile("w+t"))
-            names_file.writelines(queries)
+            names_file.writelines([f"{_q}\n" for _q in queries])
             query = [names_file.name]
         else:
             query = queries
