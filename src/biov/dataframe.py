@@ -7,9 +7,10 @@ from typing import Callable
 from pandas import DataFrame
 
 from .io.gff import GFFMixin
+from .ranges import RangeMixin
 
 
-class BioDataFrame(GFFMixin, DataFrame):
+class BioDataFrame(GFFMixin, RangeMixin, DataFrame):
     """DataFrame for biological data.
 
     Attributes:

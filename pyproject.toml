@@ -11,10 +11,12 @@ dependencies = [
     "biopython>=1.85",
     "fsspec[full]>=2025.3.2",
     "pandas>=2.2.3",
-    "pydantic-settings>=2.8.1",
+    "pyranges>=0.1.4",
+    "pydantic-settings>=2.9.1",
     "typeguard>=4.4.2",
-    "typer>=0.15.2",
+    "typer>=0.15.3",
     "typing-extensions>=4.13.2",
+    "setuptools>=80.4.0",
 ]
 
 [project.scripts]
@@ -35,7 +37,7 @@ dev = [
 ]
 docs = [
     "mkdocs>=1.6.1",
-    "mkdocs-material>=9.6.11",
+    "mkdocs-material>=9.6.13",
     "mkdocstrings[python]>=0.29.1",
     "mkdocs-gen-files>=0.5",
     "mkdocs-literate-nav>=0.6.2",

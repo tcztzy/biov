@@ -6,4 +6,6 @@ from .config import settings as settings
 from .dataframe import BioDataFrame as BioDataFrame
 from .io.gff import read_gff3 as read_gff3
 from .io.fastx import read_fasta as read_fasta
+from .ranges import from_pyranges as from_pyranges
+from .ranges import to_pyranges as to_pyranges
 from .seq import Seq as Seq
