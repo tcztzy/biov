@@ -6,17 +6,17 @@ readme = "README.md"
 authors = [
     { name = "Tang Ziya", email = "tcztzy@gmail.Com" }
 ]
-requires-python = ">=3.11"
+requires-python = ">=3.12"
 dependencies = [
     "biopython>=1.85",
     "fsspec[full]>=2025.3.2",
+    "numpy>=2.0",
     "pandas>=2.2.3",
-    "pyranges>=0.1.4",
+    "pydantic>=2.11.4",
     "pydantic-settings>=2.9.1",
+    "ruranges>=0.2.7",
     "typeguard>=4.4.2",
     "typer>=0.15.3",
-    "typing-extensions>=4.13.2",
-    "setuptools>=80.4.0",
 ]
 
 [project.scripts]

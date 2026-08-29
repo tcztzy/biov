@@ -41,5 +41,7 @@ markdown_extensions:
 nav:
 - Home: index.md
 - Guides:
+  - Genomic ranges: guides/ranges.md
+  - Typed sequence Series: guides/sequences.md
   - Configuration: guides/configuration.md
 - API Reference: reference/

@@ -1,9 +1,5 @@
 """DataFrame for biological data."""
 
-from __future__ import annotations
-
-from typing import Callable
-
 from pandas import DataFrame
 
 from .io.gff import GFFMixin
@@ -18,5 +14,5 @@ class BioDataFrame(GFFMixin, RangeMixin, DataFrame):
     """
 
     @property
-    def _constructor(self) -> Callable[..., BioDataFrame]:
+    def _constructor(self) -> type["BioDataFrame"]:
         return BioDataFrame
