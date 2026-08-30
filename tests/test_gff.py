@@ -31,6 +31,15 @@ def test_read_gff3():
     assert "Parent" in df.columns
 
 
+def test_gff_metadata_survives_dataframe_operations():
+    custom_columns = [f"column_{index}" for index in range(9)]
+    frame = BioDataFrame({"value": [1, 2]})
+    frame._gff_columns = custom_columns
+
+    for result in (frame.copy(), frame.iloc[:1], frame.assign(other=3)):
+        assert result._gff_columns == custom_columns
+
+
 def test_to_gff3(sample_gff: BioDataFrame):
     with NamedTemporaryFile(mode="w", suffix=".gff") as f:
         sample_gff.to_gff3(f.name)

@@ -10,7 +10,7 @@ from typing import TYPE_CHECKING, Any, Literal
 from urllib.parse import unquote
 
 import pandas as pd
-from pandas._typing import FilePath, ReadCsvBuffer, WriteBuffer
+from pandas.api.typing.aliases import FilePath, ReadCsvBuffer, WriteBuffer
 
 from ._preprocess import preprocessing
 
@@ -91,12 +91,14 @@ def read_gff3(
     def explode(attributes: pd.Series):
         attr_df = pd.json_normalize(
             attributes.apply(
-                lambda attrs: dict(
-                    [unquote(i) for i in kv.split("=", maxsplit=1)]
-                    for kv in attrs.split(";")
+                lambda attrs: (
+                    dict(
+                        [unquote(i) for i in kv.split("=", maxsplit=1)]
+                        for kv in attrs.split(";")
+                    )
+                    if isinstance(attrs, str)
+                    else {}
                 )
-                if isinstance(attrs, str)
-                else {}
             )  # type: ignore
         )
         return attr_df[[c for c in attr_df.columns if c not in names]]

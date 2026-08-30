@@ -8,15 +8,16 @@ authors = [
 ]
 requires-python = ">=3.12"
 dependencies = [
-    "biopython>=1.85",
-    "fsspec[full]>=2025.3.2",
-    "numpy>=2.0",
-    "pandas>=2.2.3",
-    "pydantic>=2.11.4",
-    "pydantic-settings>=2.9.1",
+    "biopython>=1.88",
+    "fsspec[full]>=2026.7.0",
+    "mcp>=2.1.1",
+    "numpy>=2.5.2",
+    "pandas>=3.0.5",
+    "pydantic>=2.13.5",
+    "pydantic-settings>=2.15.0",
     "ruranges>=0.2.7",
-    "typeguard>=4.4.2",
-    "typer>=0.15.3",
+    "typeguard>=4.6.0",
+    "typer>=0.27.2",
 ]
 
 [project.scripts]
@@ -31,24 +32,37 @@ packages = ["src/biov"]
 
 [dependency-groups]
 dev = [
-    "pre-commit>=4.2.0",
+    "pre-commit>=4.6.2",
     { include-group = "docs" },
     { include-group = "test" },
 ]
 docs = [
     "mkdocs>=1.6.1",
-    "mkdocs-material>=9.6.13",
-    "mkdocstrings[python]>=0.29.1",
-    "mkdocs-gen-files>=0.5",
-    "mkdocs-literate-nav>=0.6.2",
+    "mkdocs-material>=9.7.7",
+    "mkdocstrings[python]>=1.0.6",
+    "mkdocs-gen-files>=0.6.1",
+    "mkdocs-literate-nav>=0.6.3",
 ]
 test = [
-    "pytest>=8.3.5",
+    "pytest>=9.1.1",
 ]
+
+[tool.ruff]
+target-version = "py312"
 
 [tool.ruff.lint]
 preview = true
-extend-select = ["D", "DOC", "I", "PD", "S", "T20"]
+extend-select = ["D", "DOC", "I", "PD", "S", "T20", "TID251", "UP"]
+ignore = ["FA100", "FA102"]
+
+[tool.ruff.lint.flake8-tidy-imports.banned-api]
+"__future__.annotations" = { msg = "Python 3.12 project: do not postpone annotations" }
+"typing.List" = { msg = "Use list[T]" }
+"typing.Dict" = { msg = "Use dict[K, V]" }
+"typing.Set" = { msg = "Use set[T]" }
+"typing.Tuple" = { msg = "Use tuple[...]" }
+"typing.Optional" = { msg = "Use T | None" }
+"typing.Union" = { msg = "Use A | B" }
 
 [tool.ruff.lint.pydocstyle]
 convention = "google"

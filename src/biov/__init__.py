@@ -1,7 +1,5 @@
 """Next-generation development experience for computational molecular biology."""
 
-from . import _patch  # noqa
-
 from .config import settings as settings
 from .dataframe import BioDataFrame as BioDataFrame
 from .io.fastx import read_fasta as read_fasta

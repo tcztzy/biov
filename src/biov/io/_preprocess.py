@@ -6,9 +6,6 @@ from ..config import settings
 def preprocessing(filepath_or_buffer: Any, **kwargs) -> tuple[Any, Any]:
     if isinstance(filepath_or_buffer, str):
         *protocols, path = filepath_or_buffer.split("::")
-        # https://github.com/pandas-dev/pandas/pull/60100
-        if any([protocol.startswith("tar://") for protocol in protocols]):
-            kwargs["compression"] = None
         if (
             settings.cache_http
             and path.startswith(("https://", "http://"))

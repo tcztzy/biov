@@ -3,7 +3,7 @@
 import fsspec
 from Bio import SeqIO
 from Bio.SeqRecord import SeqRecord
-from pandas._typing import FilePath, ReadBuffer
+from pandas.api.typing.aliases import FilePath, ReadBuffer
 
 from ._preprocess import preprocessing
 

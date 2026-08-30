@@ -7,7 +7,7 @@ import subprocess  # noqa: S404
 from contextlib import ExitStack
 from pathlib import Path
 from tempfile import NamedTemporaryFile
-from typing import Annotated, Any
+from typing import Annotated, Any, Literal
 
 import fsspec
 import pandas as pd
@@ -16,11 +16,12 @@ from Bio.Data.IUPACData import (
     unambiguous_dna_letters,
     unambiguous_rna_letters,
 )
-from click import Choice
 from typeguard import typechecked
 from typer import Argument, Option, Typer
 
 from ..config import settings
+
+MaskType = Literal["lower", "upper", "out", "file.out"]
 
 _FSSPEC_URL_PATTERN = re.compile(r"^[A-Za-z][A-Za-z0-9+\-+.]*(::[A-Za-z0-9+\-+.]+)*://")
 
@@ -81,7 +82,7 @@ def _handle_fsspec_path(path: str, stack: ExitStack) -> str:
         *protocols, path = path.split("::")
         if len(protocols) == 0 or protocols[-1] != "filecache":
             protocols = [*protocols, "filecache"]
-        db = stack.enter_context(NamedTemporaryFile())
+        db = stack.enter_context(NamedTemporaryFile())  # noqa: SIM115
         with fsspec.open("::".join([*protocols, path]), compression="infer") as x:
             shutil.copyfileobj(x, db)  # pyright: ignore
         path = db.name
@@ -110,7 +111,9 @@ def _handle_seq(path: str, stack: ExitStack) -> str:
             flags=re.IGNORECASE,
         )
     ):
-        f = stack.enter_context(NamedTemporaryFile("w+t", suffix=".fa"))
+        f = stack.enter_context(
+            NamedTemporaryFile("w+t", suffix=".fa")  # noqa: SIM115
+        )
         name = path if len(path) <= 23 else f"{path[:11]}_{len(path)}"
         f.write(f">{name}\n{path}")
         f.flush()
@@ -138,14 +141,13 @@ def blat_cli(
     ],
     *,
     t: Annotated[
-        str,
-        Option("-t", click_type=Choice(["dna", "prot", "dnax"]), help="Database type."),
+        Literal["dna", "prot", "dnax"],
+        Option("-t", help="Database type."),
     ] = "dna",
     q: Annotated[
-        str,
+        Literal["dna", "rna", "prot", "dnax", "rnax"],
         Option(
             "-q",
-            click_type=Choice(["dna", "rna", "prot", "dnax", "rnax"]),
             help="Query type.",
         ),
     ] = "dna",
@@ -172,10 +174,9 @@ def blat_cli(
         Option("-stepSize", help="Spacing between tiles.", show_default="tileSize"),
     ] = None,
     oneOff: Annotated[
-        str,
+        Literal["0", "1"],
         Option(
             "-oneOff",
-            click_type=Choice(["0", "1"]),
             help="If set to 1, this allows one mismatch in tile and still triggers an alignment.",
         ),
     ] = "0",
@@ -234,23 +235,21 @@ def blat_cli(
         bool, Option("-noSimpRepMask", help="Suppresses simple repeat masking.")
     ] = False,
     mask: Annotated[
-        str | None,
+        MaskType | None,
         Option(
             "-mask",
             help="Mask out repeats. Alignments won't be started in masked region but may extend through it in nucleotide searches. Masked areas are ignored entirely in protein or translated searches.",
-            click_type=Choice(["lower", "upper", "out", "file.out"]),
         ),
     ] = None,
     qMask: Annotated[
-        str | None,
+        MaskType | None,
         Option(
             "-qMask",
             help="Mask out repeats in query sequence. Similar to -mask above, but for query rather than target sequence.",
-            click_type=Choice(["lower", "upper", "out", "file.out"]),
         ),
     ] = None,
     repeats: Annotated[
-        str | None,
+        MaskType | None,
         Option(
             "-repeats",
             help="Type is same as mask types above.  Repeat bases will not be masked in any way, but matches in repeat areas will be reported separately from matches in other areas in the psl output.",
@@ -288,23 +287,20 @@ def blat_cli(
         ),
     ] = False,
     out: Annotated[
-        str,
+        Literal[
+            "psl",
+            "pslx",
+            "axt",
+            "maf",
+            "sim4",
+            "wublast",
+            "blast",
+            "blast8",
+            "blast9",
+        ],
         Option(
             "-out",
             help="Controls output file format.",
-            click_type=Choice(
-                [
-                    "psl",
-                    "pslx",
-                    "axt",
-                    "maf",
-                    "sim4",
-                    "wublast",
-                    "blast",
-                    "blast8",
-                    "blast9",
-                ]
-            ),
         ),
     ] = "psl",
     fine: Annotated[
@@ -468,7 +464,8 @@ def blat(
                 database,
                 *query,
                 f.name,
-            ]
+            ],
+            check=False,
         )
         return pd.read_table(
             f,

@@ -15,5 +15,6 @@ BioV can be configured through:
 
 ```python
 from biov.config import settings
+
 print(settings.cache_http)
 ```

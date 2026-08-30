@@ -1,11 +1,15 @@
 """Tests for scalar and typed pandas sequence APIs."""
 
+from io import StringIO
+
+import numpy as np
 import pandas as pd
 import pytest
+from numpy.typing import NDArray
 from pandas.testing import assert_frame_equal, assert_series_equal
 from pydantic import BaseModel, TypeAdapter
 
-from biov.seq import Seq, SequenceValidationError
+from biov.seq import Seq, SequenceArray, SequenceValidationError
 
 
 class SequenceModel(BaseModel):
@@ -39,6 +43,39 @@ def test_sequence_dtype_is_explicit_nullable_and_normalized() -> None:
     )
     with pytest.raises(AttributeError, match="BioV sequence dtype"):
         _ = pd.Series(["ACGT"]).seq
+
+
+def test_sequence_dtype_is_available_to_pandas_parsers() -> None:
+    """Construct the extension array through pandas' string parser protocol."""
+    frame = pd.read_csv(
+        StringIO("sequence\nacgt\n"),
+        dtype={"sequence": "biov.dna"},
+    )
+
+    assert str(frame["sequence"].dtype) == "biov.dna"
+    assert frame["sequence"].tolist() == ["ACGT"]
+
+
+def test_sequence_array_honors_pandas_readonly_protocol() -> None:
+    """Prevent mutation through pandas 3 read-only ExtensionArray views."""
+    array = pd.array(["AC", None, "GT"], dtype="biov.dna")
+    assert isinstance(array, SequenceArray)
+    array._readonly = True
+
+    with pytest.raises(ValueError, match="Cannot modify read-only array"):
+        array[0] = "TT"
+
+    values: NDArray[np.object_] = np.asarray(array)
+    assert not values.flags.writeable
+    assert np.shares_memory(values, array._data)
+
+    sliced = array[:]
+    assert sliced._readonly
+    assert sliced.tolist() == ["AC", pd.NA, "GT"]
+
+    copied = array.copy()
+    assert not copied._readonly
+    assert np.asarray(copied).flags.writeable
 
 
 def test_sequence_array_supports_indexing_assignment_and_concat() -> None:

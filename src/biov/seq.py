@@ -12,15 +12,6 @@ from Bio.SeqUtils import gc_fraction
 from Bio.SeqUtils.ProtParam import ProteinAnalysis
 from numpy.typing import NDArray
 from pandas import DataFrame, Series
-from pandas._typing import (
-    ArrayLike,
-    AstypeArg,
-    Dtype,
-    PositionalIndexer,
-    ScalarIndexer,
-    SequenceIndexer,
-    TakeIndexer,
-)
 from pandas.api.extensions import (
     ExtensionArray,
     ExtensionDtype,
@@ -29,6 +20,14 @@ from pandas.api.extensions import (
     take,
 )
 from pandas.api.types import is_scalar, pandas_dtype
+from pandas.api.typing.aliases import (
+    ArrayLike,
+    AstypeArg,
+    Dtype,
+    ScalarIndexer,
+    SequenceIndexer,
+    TakeIndexer,
+)
 from pydantic import GetCoreSchemaHandler
 from pydantic_core import CoreSchema, core_schema
 
@@ -117,8 +116,7 @@ class SequenceDtype(ExtensionDtype):
             raise TypeError(f"Cannot construct a SequenceDtype from {string!r}")
         return cls(cast(SequenceKind, kind))
 
-    @classmethod
-    def construct_array_type(cls) -> builtins.type["SequenceArray"]:
+    def construct_array_type(self) -> builtins.type["SequenceArray"]:
         """Return the ExtensionArray paired with this dtype."""
         return SequenceArray
 
@@ -208,6 +206,21 @@ class SequenceArray(ExtensionArray):
         return cls(scalars, _coerce_dtype(dtype), copy=copy)
 
     @classmethod
+    def _from_sequence_of_strings(
+        cls,
+        strings: Sequence[str],
+        *,
+        dtype: ExtensionDtype,
+        copy: bool = False,
+    ) -> Self:
+        """Construct from parser strings under an explicit BioV dtype.
+
+        Returns:
+            Validated sequence array.
+        """
+        return cls(strings, _coerce_dtype(dtype), copy=copy)
+
+    @classmethod
     def _from_factorized(
         cls, values: NDArray[np.object_], original: ExtensionArray
     ) -> Self:
@@ -268,15 +281,23 @@ class SequenceArray(ExtensionArray):
         self, item: SequenceIndexer
     ) -> Self: ...
 
-    def __getitem__(self, item: PositionalIndexer) -> Self | Any:
+    def __getitem__(self, item: ScalarIndexer | SequenceIndexer) -> Self | Any:
         """Return one scalar or a sliced sequence array."""
         result = self._data[item]
         if isinstance(item, (int, np.integer)):
             return result
-        return type(self)(result, self.dtype)
+        array = type(self)(result, self.dtype)
+        array._readonly = self._readonly
+        return array
 
     def __setitem__(self, key: object, value: object) -> None:
-        """Validate and assign one or more sequence values."""
+        """Validate and assign one or more sequence values.
+
+        Raises:
+            ValueError: If pandas exposed this array as read-only.
+        """
+        if self._readonly:
+            raise ValueError("Cannot modify read-only array")
         if is_scalar(value):
             self._data[cast(Any, key)] = _normalize_sequence(value, self.dtype)
             return
@@ -292,7 +313,11 @@ class SequenceArray(ExtensionArray):
         """Return a NumPy object representation."""
         if copy is True:
             return np.array(self._data, dtype=dtype, copy=True)
-        return np.asarray(self._data, dtype=dtype)
+        result = np.asarray(self._data, dtype=dtype)
+        if self._readonly and np.shares_memory(result, self._data):
+            result = result.view()
+            result.flags.writeable = False
+        return result
 
     def __eq__(self, other: object) -> Any:
         """Compare sequence values with nullable string semantics.
