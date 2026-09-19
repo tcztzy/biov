@@ -43,5 +43,7 @@ nav:
 - Guides:
   - Genomic ranges: guides/ranges.md
   - Typed sequence Series: guides/sequences.md
+  - Identifiers.org MCP: guides/identifiers.md
+  - Identifier-backed analysis: guides/artifacts.md
   - Configuration: guides/configuration.md
 - API Reference: reference/

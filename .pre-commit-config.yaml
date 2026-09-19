@@ -1,5 +1,5 @@
-# See https://pre-commit.com for more information
-# See https://pre-commit.com/hooks.html for more hooks
+# Managed by prek: https://prek.j178.dev/
+# Hook catalog: https://pre-commit.com/hooks.html
 repos:
 -   repo: https://github.com/pre-commit/pre-commit-hooks
     rev: v6.0.0
@@ -9,6 +9,7 @@ repos:
     -   id: end-of-file-fixer
     -   id: check-yaml
     -   id: check-added-large-files
+        exclude: ^src/biov/assets/identifiers_org_registry\.json$
 -   repo: https://github.com/astral-sh/ruff-pre-commit
     rev: v0.16.5
     hooks:
