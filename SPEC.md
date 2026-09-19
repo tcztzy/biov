@@ -38,12 +38,18 @@ Own interval/sequence APIs; expose persistent-ID discovery, environment-local bi
 - api: `path(identifier, artifact=None)` → namespace-default environment-local immutable `Artifact` implementing `os.PathLike[str]`
 - api: `open(identifier, artifact=None, mode="rb")` → handle for cached artifact
 - provider: `refseq.gcf` × `genome_fasta` → original catalog-selected genomic FASTA inside a complete NCBI Datasets package
+- provider: `refseq.gcf` × `annotation_gff3` → original catalog-selected GFF3 inside a complete NCBI Datasets package
+- provider: `refseq.gcf` × `rna_fasta` → original catalog-selected RNA FASTA inside a complete NCBI Datasets package
+- provider: `refseq.gcf` × `cds_fasta` → original catalog-selected CDS FASTA inside a complete NCBI Datasets package
+- provider: `refseq.gcf` × `protein_fasta` → original catalog-selected protein FASTA inside a complete NCBI Datasets package
 - provider: `uniprot` × `protein_fasta` → original accession-named UniProtKB FASTA response
 - provider: `uniprot` × `entry_json` → original complete accession-named UniProtKB JSON response
 - cmd: `biov run [OPTIONS] SCRIPT [ARGS]...` → run complete Python script locally or submit it to LSF
 - env: `BIOV_LSF_PYTHON` ? Python executable visible from LSF execution hosts; default = submitting interpreter
 - file: `$BIOV_HOME/artifacts/refseq.gcf/<requested_accession>/` → unmodified extracted NCBI Datasets package root (`README.md`, `md5sum.txt`, `ncbi_dataset/...`)
 - file: `$BIOV_HOME/artifacts/uniprot/<accession>/` → independently cached unmodified `<accession>.fasta` and/or complete `<accession>.json`; ⊥ manifest
+- file: `.github/workflows/ci.yml` → test matrix, hooks & wheel/sdist inspection on push and pull requests
+- file: `.github/workflows/registry-drift.yml` → scheduled asset sync; opens a pull request when upstream changes
 
 ## §R RESEARCH
 id|topic|finding|src
@@ -110,6 +116,7 @@ V44: `uniprot://<accession>` defaults to sequence path while its cache retains c
 V45: `entry_json` and `protein_fasta` cache independently; requesting one never fetches or requires the other; full raw JSON retains all upstream PDB IDs and cross-reference properties
 V46: registry asset bytes = upstream response body; ⊥ wrapper, flattening, foreign keys or derived fields; runtime indexes native records in memory without mutating them
 V47: `refseq.gcf://<accession>` executes only `datasets summary genome accession <accession>`; validates one matching report then returns stdout unchanged; ⊥ `path`, package download/extraction or `$BIOV_HOME` write; `path(refseq.gcf)` remains V31–V35
+V48: each registered `refseq.gcf` artifact kind maps to exactly one official catalog `fileType`; the catalog selects exactly one existing member per request; missing/duplicate members → stable package error; one cached package serves every kind
 
 ## §T TASKS
 id|status|task|cites
@@ -145,6 +152,8 @@ T29|x|backprop FASTA-only cache bug; preserve & expose complete UniProt JSON bes
 T30|x|replace relational registry snapshot with raw upstream response|I.file,I.script,V21,V25,V26,V46
 T31|x|decouple RefSeq MCP summary reads from complete analysis-package path resolution|I.resource,V23,V47
 T32|x|harden review findings: default MCP resource security, mapped registry CLI errors, bounded datasets/bsub subprocesses|V19,V20,V35,V38,V40
+T33|x|generalize RefSeq catalog selection to annotation/rna/cds/protein artifact kinds|I.provider,V31,V32,V33,V35,V48
+T34|x|add CI test/hook/package workflows & scheduled registry-drift sync; restore byte-exact asset|V15,V25,V26,V46
 
 ## §B BUGS
 id|date|cause|fix

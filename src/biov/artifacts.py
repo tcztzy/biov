@@ -25,7 +25,13 @@ UNIPROT_REST_BASE_URL = "https://rest.uniprot.org"
 DEFAULT_UNIPROT_TIMEOUT_SECONDS = 30.0
 
 NCBI_DATASET_CATALOG_MEMBER = Path("ncbi_dataset/data/dataset_catalog.json")
-_CATALOG_FILE_TYPE = "GENOMIC_NUCLEOTIDE_FASTA"
+_REFSEQ_GCF_KINDS = {
+    "genome_fasta": ("GENOMIC_NUCLEOTIDE_FASTA", "genomic FASTA"),
+    "annotation_gff3": ("GFF3", "GFF3 annotation"),
+    "rna_fasta": ("RNA_NUCLEOTIDE_FASTA", "RNA FASTA"),
+    "cds_fasta": ("CDS_NUCLEOTIDE_FASTA", "CDS FASTA"),
+    "protein_fasta": ("PROTEIN_FASTA", "protein FASTA"),
+}
 _MAX_CATALOG_BYTES = 8 * 1024 * 1024
 _MAX_UNIPROT_FASTA_HEADER_BYTES = 64 * 1024
 _MAX_UNIPROT_JSON_BYTES = 64 * 1024 * 1024
@@ -348,7 +354,7 @@ def _artifact_from_package(
     requested: IdentifierRef,
     kind: str,
 ) -> Artifact:
-    """Locate the original genomic FASTA using the official package catalog.
+    """Locate the requested original member using the official package catalog.
 
     Returns:
         Path-like artifact pointing at the unmodified package member.
@@ -365,23 +371,22 @@ def _artifact_from_package(
         raise ArtifactPackageError(
             "NCBI package contains an invalid RefSeq assembly accession"
         ) from error
+    file_type, label = _REFSEQ_GCF_KINDS[kind]
     files = assembly.get("files")
     if not isinstance(files, list):
         raise ArtifactPackageError("NCBI assembly catalog has no files")
-    fasta_files = [
+    matching_files = [
         file
         for file in files
-        if isinstance(file, dict) and file.get("fileType") == _CATALOG_FILE_TYPE
+        if isinstance(file, dict) and file.get("fileType") == file_type
     ]
-    if len(fasta_files) != 1:
-        raise ArtifactPackageError(
-            "NCBI package must contain exactly one genomic FASTA"
-        )
-    fasta = fasta_files[0]
-    relative_path = _safe_package_path(fasta.get("filePath"))
+    if len(matching_files) != 1:
+        raise ArtifactPackageError(f"NCBI package must contain exactly one {label}")
+    member = matching_files[0]
+    relative_path = _safe_package_path(member.get("filePath"))
     if relative_path.parts[0] != canonical.accession:
         raise ArtifactPackageError(
-            "NCBI catalog FASTA is outside its assembly directory"
+            f"NCBI catalog {label} is outside its assembly directory"
         )
     path = package_root / "ncbi_dataset/data" / Path(*relative_path.parts)
     try:
@@ -389,9 +394,9 @@ def _artifact_from_package(
         resolved_path = path.resolve(strict=True)
         size = path.stat().st_size
     except OSError as error:
-        raise ArtifactPackageError("NCBI catalog genomic FASTA is missing") from error
+        raise ArtifactPackageError(f"NCBI catalog {label} is missing") from error
     if not resolved_path.is_relative_to(resolved_root) or not path.is_file():
-        raise ArtifactPackageError("NCBI catalog genomic FASTA is unsafe")
+        raise ArtifactPackageError(f"NCBI catalog {label} is unsafe")
     return Artifact(
         path=path,
         package_root=package_root,
@@ -407,7 +412,7 @@ def _refseq_gcf_path(
     kind: str,
     package_root: Path,
 ) -> Artifact:
-    """Return the original genomic FASTA inside a complete cached package.
+    """Return the original requested member inside a complete cached package.
 
     Raises:
         ArtifactPackageError: If an existing cache path or package is invalid.
@@ -571,6 +576,10 @@ ARTIFACT_PROVIDERS: dict[
     tuple[str, str], Callable[[IdentifierRef, str, Path], Artifact]
 ] = {
     ("refseq.gcf", "genome_fasta"): _refseq_gcf_path,
+    ("refseq.gcf", "annotation_gff3"): _refseq_gcf_path,
+    ("refseq.gcf", "rna_fasta"): _refseq_gcf_path,
+    ("refseq.gcf", "cds_fasta"): _refseq_gcf_path,
+    ("refseq.gcf", "protein_fasta"): _refseq_gcf_path,
     ("uniprot", "protein_fasta"): _uniprot_path,
     ("uniprot", "entry_json"): _uniprot_path,
 }

@@ -1,0 +1,48 @@
+name: Registry drift
+
+on:
+  schedule:
+    - cron: "17 3 * * 1"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: astral-sh/setup-uv@v6
+        with:
+          enable-cache: true
+      - name: Sync environment
+        run: uv sync --locked
+      - name: Refresh the packaged registry asset
+        run: uv run biov update-identifiers-registry
+      - name: Run registry and MCP tests against the refreshed asset
+        run: uv run pytest tests/test_identifiers_registry.py tests/test_identifiers_mcp.py -q
+      - name: Open or update the sync pull request
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          if git diff --quiet -- src/biov/assets/identifiers_org_registry.json; then
+            echo "Registry asset is already current; no pull request needed."
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          branch="chore/registry-sync"
+          git checkout -B "$branch"
+          git add src/biov/assets/identifiers_org_registry.json
+          git commit -m "Changed: sync identifiers.org registry asset"
+          git push --force origin "$branch"
+          if [ "$(gh pr list --head "$branch" --state open --json number --jq 'length')" = "0" ]; then
+            gh pr create \
+              --title "Changed: sync identifiers.org registry asset" \
+              --body "Scheduled sync of the packaged identifiers.org resolver dataset. Registry and MCP tests pass against the refreshed asset." \
+              --base main \
+              --head "$branch"
+          fi

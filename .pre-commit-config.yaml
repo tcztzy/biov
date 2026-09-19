@@ -7,6 +7,9 @@ repos:
     -   id: trailing-whitespace
         exclude: renv/activate.R
     -   id: end-of-file-fixer
+        # Machine-managed upstream response body; bytes must stay identical to
+        # what `biov update-identifiers-registry` writes (SPEC V26/V46).
+        exclude: ^src/biov/assets/identifiers_org_registry\.json$
     -   id: check-yaml
     -   id: check-added-large-files
         exclude: ^src/biov/assets/identifiers_org_registry\.json$

@@ -9,9 +9,13 @@ cache, download, and executor-local path details.
 The provider pairs are:
 
 ```text
-refseq.gcf × genome_fasta → NCBI Datasets genomic FASTA
-uniprot   × protein_fasta → UniProtKB entry FASTA
-uniprot   × entry_json    → complete UniProtKB entry JSON
+refseq.gcf × genome_fasta    → NCBI Datasets genomic FASTA
+refseq.gcf × annotation_gff3 → NCBI Datasets GFF3 annotation
+refseq.gcf × rna_fasta       → NCBI Datasets RNA FASTA
+refseq.gcf × cds_fasta       → NCBI Datasets CDS FASTA
+refseq.gcf × protein_fasta   → NCBI Datasets protein FASTA
+uniprot    × protein_fasta   → UniProtKB entry FASTA
+uniprot    × entry_json      → complete UniProtKB entry JSON
 ```
 
 Other data types should be added as namespace × artifact providers, not as one
@@ -113,10 +117,12 @@ $BIOV_HOME/artifacts/refseq.gcf/GCF_000006945.2/
 ```
 
 The files actually supplied by NCBI depend on the assembly. The returned
-`Artifact.path` points to the original `GENOMIC_NUCLEOTIDE_FASTA` member named
-by `dataset_catalog.json`; `Artifact.package_root` points to the package root.
-It also exposes the requested and catalog-canonical identifiers, kind, and file
-size.
+`Artifact.path` points to the original member that `dataset_catalog.json`
+selects for the requested kind, such as the `GENOMIC_NUCLEOTIDE_FASTA` file for
+`genome_fasta` or the `GFF3` file for `annotation_gff3`;
+`Artifact.package_root` points to the package root. It also exposes the
+requested and catalog-canonical identifiers, kind, and file size. One cached
+package serves every RefSeq kind without another download.
 
 A valid package-directory cache hit reads the local catalog and file metadata,
 then skips `datasets`. A cache miss downloads and extracts in a sibling staging

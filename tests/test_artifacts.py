@@ -111,6 +111,7 @@ def _genome_package(
     payload: bytes = FASTA,
     catalog_file_count: int = 1,
     include_fasta: bool = True,
+    include_gff: bool = True,
     extra_members: dict[str, bytes] | None = None,
 ) -> bytes:
     """Build a compact, complete NCBI-shaped genome package in memory.
@@ -165,6 +166,8 @@ def _genome_package(
     package_files[f"ncbi_dataset/data/{fasta_path}"] = payload
     if not include_fasta:
         package_files.pop(f"ncbi_dataset/data/{fasta_path}")
+    if not include_gff:
+        package_files.pop(f"ncbi_dataset/data/{accession}/genomic.gff")
     package_files["ncbi_dataset/data/dataset_catalog.json"] = json.dumps(
         catalog
     ).encode()
@@ -507,6 +510,70 @@ def test_path_preserves_complete_package_and_skips_cached_cli(
     assert not list(package_root.rglob("genome.*.fna"))
 
 
+@pytest.mark.parametrize(
+    ("kind", "filename", "content"),
+    [
+        ("genome_fasta", FASTA_NAME, FASTA),
+        ("annotation_gff3", "genomic.gff", b"##gff-version 3\n"),
+        ("rna_fasta", "rna.fna", b">rna\nACGU\n"),
+        ("cds_fasta", "cds_from_genomic.fna", b">cds\nACGT\n"),
+        ("protein_fasta", "protein.faa", b">protein\nMT\n"),
+    ],
+)
+def test_path_selects_each_refseq_catalog_kind(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    kind: str,
+    filename: str,
+    content: bytes,
+) -> None:
+    """Select the original catalog member matching each registered kind."""
+    downloader = FakeDatasetsCli()
+    _install_provider(monkeypatch, tmp_path, downloader)
+
+    artifact = path(ACCESSION, artifact=kind)
+
+    package_root = tmp_path / "artifacts" / "refseq.gcf" / ACCESSION
+    assert artifact.path == package_root / "ncbi_dataset/data" / ACCESSION / filename
+    assert artifact.path.read_bytes() == content
+    assert artifact.kind == kind
+    assert artifact.size == len(content)
+    assert downloader.download_calls == [ACCESSION]
+
+
+def test_one_cached_package_serves_every_refseq_kind(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    """Serve all RefSeq kinds from one downloaded complete package."""
+    downloader = FakeDatasetsCli()
+    _install_provider(monkeypatch, tmp_path, downloader)
+
+    genome = path(ACCESSION)
+    annotation = path(ACCESSION, artifact="annotation_gff3")
+    protein = path(ACCESSION, artifact="protein_fasta")
+
+    assert genome.kind == "genome_fasta"
+    assert annotation.path.name == "genomic.gff"
+    assert protein.path.name == "protein.faa"
+    assert genome.package_root == annotation.package_root == protein.package_root
+    assert downloader.download_calls == [ACCESSION]
+
+
+def test_path_rejects_package_missing_the_requested_kind(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    """Report a stable package error when the catalog member is absent."""
+    downloader = FakeDatasetsCli(_genome_package(include_gff=False))
+    _install_provider(monkeypatch, tmp_path, downloader)
+
+    with pytest.raises(ArtifactPackageError, match="missing"):
+        path(ACCESSION, artifact="annotation_gff3")
+
+    assert not (tmp_path / "artifacts" / "refseq.gcf" / ACCESSION).exists()
+
+
 def test_versionless_path_uses_catalog_canonical_accession(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
@@ -732,5 +799,5 @@ def test_path_rejects_unsupported_namespace_and_artifact_kind() -> None:
     """Dispatch only explicitly registered namespace and artifact pairs."""
     with pytest.raises(UnsupportedArtifactError, match="uniprot"):
         path("uniprot:P12345", artifact="genome_fasta")
-    with pytest.raises(UnsupportedArtifactError, match="protein_fasta"):
-        path(ACCESSION, artifact="protein_fasta")
+    with pytest.raises(UnsupportedArtifactError, match="entry_json"):
+        path(ACCESSION, artifact="entry_json")
