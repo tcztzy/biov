@@ -11,6 +11,7 @@ use std::{
 };
 
 use base64::{engine::general_purpose::STANDARD, Engine};
+use md5::Md5;
 use polars::prelude::*;
 use serde_json::{json, Value};
 use sha2::{Digest, Sha256};
@@ -243,9 +244,26 @@ async fn tools_have_typed_schemas_and_sdk_protocol_errors() {
             "dataset_read_artifact",
             "dataset_release",
             "storage_register",
-            "storage_resolve"
+            "storage_resolve",
+            "prepared_fasta"
         ])
     );
+    let prepared = tools
+        .iter()
+        .find(|tool| tool["name"] == "prepared_fasta")
+        .unwrap();
+    let required: BTreeSet<_> = prepared["inputSchema"]["required"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|value| value.as_str().unwrap())
+        .collect();
+    assert_eq!(
+        required,
+        BTreeSet::from(["reference", "snapshot_id", "source_path"])
+    );
+    assert_eq!(prepared["annotations"]["readOnlyHint"], false);
+    assert_eq!(prepared["annotations"]["destructiveHint"], false);
     for tool in tools {
         assert_eq!(tool["inputSchema"]["type"], "object");
         assert_eq!(tool["inputSchema"]["additionalProperties"], false);
@@ -280,6 +298,19 @@ async fn tools_have_typed_schemas_and_sdk_protocol_errors() {
         (
             "storage_resolve",
             json!({"reference":"pdb:1ABC", "representation":"mmcif", "unexpected":true}),
+        ),
+        ("prepared_fasta", json!({})),
+        (
+            "prepared_fasta",
+            json!({"reference":"refseq.gcf:GCF_000005845.2","snapshot_id":"sha256-anything"}),
+        ),
+        (
+            "prepared_fasta",
+            json!({"reference":"refseq.gcf:GCF_000005845.2","snapshot_id":42,"source_path":"genome.fna"}),
+        ),
+        (
+            "prepared_fasta",
+            json!({"reference":"refseq.gcf:GCF_000005845.2","snapshot_id":"sha256-anything","source_path":"genome.fna","unexpected":true}),
         ),
         ("no_such_tool", json!({})),
     ] {
@@ -986,6 +1017,10 @@ async fn storage_tools_report_not_configured_without_affecting_datasets() {
             "storage_resolve",
             json!({"reference":"pdb:1ABC","representation":"mmcif"}),
         ),
+        (
+            "prepared_fasta",
+            prepared_request(&format!("sha256-{}", "a".repeat(64))),
+        ),
     ] {
         let response = server.call(tool, request).await;
         assert_eq!(response["result"]["isError"], true);
@@ -1454,4 +1489,317 @@ async fn csv_blank_lines_and_retained_typed_payload_cannot_bypass_preflight() {
         .await;
     assert_eq!(after_release["row_count"], 21_000);
     server.finish().await;
+}
+
+// Synthetic provider-shaped metadata is sufficient to exercise the native
+// adapter. Supplied MD5 values establish consistency, never NCBI authenticity.
+const PREPARED_REFERENCE: &str = "refseq.gcf:GCF_000005845.2";
+const PREPARED_SOURCE: &str = "ncbi_dataset/data/GCF_000005845.2/genome.fna";
+const PREPARED_FASTA: &str = ">chr1 synthetic fixture\nACGT\nAC\n>chr2\nttNN\n";
+
+fn refseq_register_request() -> Value {
+    json!({
+        "source_path":"refseq",
+        "requested_ref":"refseq.gcf:GCF_000005845",
+        "canonical_ref":PREPARED_REFERENCE,
+        "declaration":{"provider":"refseq"}
+    })
+}
+
+fn prepared_request(snapshot_id: &str) -> Value {
+    json!({"reference":PREPARED_REFERENCE,"snapshot_id":snapshot_id,"source_path":PREPARED_SOURCE})
+}
+
+fn prepare_refseq_fixture(fixture: &Fixture) -> PathBuf {
+    let package = fixture.data.join("refseq");
+    let data = package.join("ncbi_dataset/data");
+    let assembly = data.join("GCF_000005845.2");
+    fs::create_dir_all(&assembly).unwrap();
+    fs::write(
+        package.join("README.md"),
+        "Synthetic native RefSeq-style fixture.\n",
+    )
+    .unwrap();
+    fs::write(package.join(PREPARED_SOURCE), PREPARED_FASTA).unwrap();
+    let report = b"{\"accession\":\"GCF_000005845.2\"}\n";
+    fs::write(data.join("assembly_data_report.jsonl"), report).unwrap();
+    let catalog = json!({"apiVersion":"V2","assemblies":[
+        {"files":[{"filePath":"assembly_data_report.jsonl","fileType":"DATA_REPORT","uncompressedLengthBytes":report.len().to_string()}]},
+        {"accession":"GCF_000005845.2","files":[
+            {"filePath":"GCF_000005845.2/genome.fna","fileType":"GENOMIC_NUCLEOTIDE_FASTA","uncompressedLengthBytes":PREPARED_FASTA.len().to_string()}
+        ]}
+    ]});
+    fs::write(
+        data.join("dataset_catalog.json"),
+        serde_json::to_vec_pretty(&catalog).unwrap(),
+    )
+    .unwrap();
+    let mut md5 = String::new();
+    for relative in [
+        "ncbi_dataset/data/dataset_catalog.json",
+        "ncbi_dataset/data/assembly_data_report.jsonl",
+        PREPARED_SOURCE,
+    ] {
+        md5.push_str(&format!(
+            "{:x}  {relative}\n",
+            Md5::digest(fs::read(package.join(relative)).unwrap())
+        ));
+    }
+    fs::write(package.join("md5sum.txt"), md5).unwrap();
+    let store = fixture.root.join("native-store");
+    fs::create_dir(&store).unwrap();
+    store
+}
+
+fn file_hashes(root: &Path) -> std::collections::BTreeMap<PathBuf, Vec<u8>> {
+    fn visit(
+        root: &Path,
+        directory: &Path,
+        result: &mut std::collections::BTreeMap<PathBuf, Vec<u8>>,
+    ) {
+        for entry in fs::read_dir(directory).unwrap() {
+            let path = entry.unwrap().path();
+            if path.is_dir() {
+                visit(root, &path, result);
+            } else {
+                result.insert(
+                    path.strip_prefix(root).unwrap().to_path_buf(),
+                    Sha256::digest(fs::read(path).unwrap()).to_vec(),
+                );
+            }
+        }
+    }
+    let mut result = std::collections::BTreeMap::new();
+    visit(root, root, &mut result);
+    result
+}
+
+fn verify_prepared_paths(store: &Path, result: &Value) {
+    assert_eq!(result["reference"], PREPARED_REFERENCE);
+    assert_eq!(result["sequence_count"], 2);
+    assert_eq!(result["total_bases"], 10);
+    assert!(result["recipe_id"].is_string());
+    assert!(result.get("sequences").is_none());
+    assert!(result.get("inventory").is_none());
+    assert!(result.get("data").is_none());
+    for name in ["fasta", "fai", "dictionary", "provenance", "readme"] {
+        let relative = result[name]["relative_path"].as_str().unwrap();
+        let execution = Path::new(result[name]["execution_host_path"].as_str().unwrap());
+        assert!(!Path::new(relative).is_absolute());
+        assert_eq!(execution, store.join(relative));
+        assert!(
+            execution.is_file(),
+            "missing {name} at {}",
+            execution.display()
+        );
+    }
+    assert_eq!(
+        fs::read_to_string(result["fasta"]["execution_host_path"].as_str().unwrap()).unwrap(),
+        PREPARED_FASTA
+    );
+    let fai = fs::read_to_string(result["fai"]["execution_host_path"].as_str().unwrap()).unwrap();
+    assert_eq!(fai.lines().count(), 2);
+    assert!(fai.starts_with("chr1\t6\t"));
+    assert!(fai.lines().nth(1).unwrap().starts_with("chr2\t4\t"));
+}
+
+#[tokio::test]
+async fn prepared_fasta_native_registration_reuse_and_moved_store_round_trip() {
+    let fixture = Fixture::new();
+    let store = prepare_refseq_fixture(&fixture);
+    let native_original = file_hashes(&fixture.data.join("refseq"));
+    let mut first = Server::start_with_storage(&fixture.data, &fixture.output, Some(&store)).await;
+    let registered = first
+        .successful("storage_register", refseq_register_request())
+        .await;
+    let snapshot = store.join(registered["snapshot"]["snapshot_path"].as_str().unwrap());
+    let snapshot_before = file_hashes(&snapshot);
+    let request = prepared_request(registered["snapshot"]["snapshot_id"].as_str().unwrap());
+    let prepared = first.successful("prepared_fasta", request.clone()).await;
+    assert_eq!(prepared["reused"], false);
+    assert_eq!(
+        prepared["snapshot_id"],
+        registered["snapshot"]["snapshot_id"]
+    );
+    verify_prepared_paths(&store, &prepared);
+    let repeated = first.successful("prepared_fasta", request.clone()).await;
+    assert_eq!(repeated["reused"], true);
+    assert_eq!(repeated["recipe_id"], prepared["recipe_id"]);
+    for name in ["fasta", "fai", "dictionary", "provenance", "readme"] {
+        assert_eq!(repeated[name], prepared[name]);
+    }
+    assert_eq!(
+        file_hashes(&snapshot),
+        snapshot_before,
+        "native snapshot must remain immutable"
+    );
+    assert_eq!(
+        file_hashes(&fixture.data.join("refseq")),
+        native_original,
+        "original package must remain immutable"
+    );
+    let opened = first
+        .successful("dataset_open", json!({"path":"genes.csv"}))
+        .await;
+    assert_eq!(opened["row_count"], 5);
+    first.finish().await;
+
+    fs::remove_dir_all(fixture.data.join("refseq")).unwrap();
+    let moved = fixture.root.join("moved-prepared-store");
+    fs::rename(&store, &moved).unwrap();
+    let mut second = Server::start_with_storage(&fixture.data, &fixture.output, Some(&moved)).await;
+    let reused = second.successful("prepared_fasta", request).await;
+    assert_eq!(reused["reused"], true);
+    assert_eq!(reused["recipe_id"], prepared["recipe_id"]);
+    verify_prepared_paths(&moved, &reused);
+    for name in ["fasta", "fai", "dictionary", "provenance", "readme"] {
+        assert_eq!(
+            reused[name]["relative_path"],
+            prepared[name]["relative_path"]
+        );
+    }
+    second.finish().await;
+}
+
+#[tokio::test]
+async fn prepared_fasta_invalid_reference_snapshot_and_paths_are_bounded_tool_errors() {
+    let fixture = Fixture::new();
+    let store = prepare_refseq_fixture(&fixture);
+    let mut server = Server::start_with_storage(&fixture.data, &fixture.output, Some(&store)).await;
+    let registered = server
+        .successful("storage_register", refseq_register_request())
+        .await;
+    let request = prepared_request(registered["snapshot"]["snapshot_id"].as_str().unwrap());
+    for (field, invalid) in [
+        ("reference", "refseq.gcf:GCF_000005845".to_owned()),
+        ("reference", "pdb:1ABC".to_owned()),
+        ("reference", "ds_session_handle".to_owned()),
+        ("reference", "refseq.gcf:GCF_000005845.3".to_owned()),
+        ("snapshot_id", "../snapshot".to_owned()),
+        ("snapshot_id", format!("sha256-{}", "a".repeat(64))),
+        ("source_path", String::new()),
+        ("source_path", "../genome.fna".to_owned()),
+        ("source_path", "/etc/passwd".to_owned()),
+        ("source_path", "https://example.org/genome.fna".to_owned()),
+        ("source_path", "ncbi_dataset/data/../genome.fna".to_owned()),
+        ("source_path", "missing.fna".to_owned()),
+        ("source_path", "README.md".to_owned()),
+        ("source_path", "🧬".repeat(5000)),
+    ] {
+        let mut invalid_request = request.clone();
+        invalid_request[field] = json!(invalid);
+        server.tool_error("prepared_fasta", invalid_request).await;
+    }
+    let prepared = server.successful("prepared_fasta", request).await;
+    verify_prepared_paths(&store, &prepared);
+    let opened = server
+        .successful("dataset_open", json!({"path":"genes.csv"}))
+        .await;
+    assert_eq!(opened["row_count"], 5);
+    server.finish().await;
+}
+
+async fn cli_prepared(store: &Path, request_file: &Path) -> std::process::Output {
+    timeout(
+        DEADLINE,
+        Command::new(binary())
+            .args(["prepared", "fasta"])
+            .arg("--store-root")
+            .arg(store)
+            .arg("--request-file")
+            .arg(request_file)
+            .env("PATH", "")
+            .env_remove("PYTHONPATH")
+            .output(),
+    )
+    .await
+    .unwrap()
+    .unwrap()
+}
+
+#[tokio::test]
+async fn one_shot_prepared_cli_reuses_native_snapshot_and_enforces_strict_bounded_json() {
+    let fixture = Fixture::new();
+    let store = prepare_refseq_fixture(&fixture);
+    let request_file = fixture.root.join("request.json");
+    fs::write(
+        &request_file,
+        serde_json::to_vec(&refseq_register_request()).unwrap(),
+    )
+    .unwrap();
+    let registered =
+        successful_cli_json(&cli_storage(&fixture, &store, "register", &request_file).await);
+    fs::remove_dir_all(&fixture.data).unwrap();
+    let request = prepared_request(registered["snapshot"]["snapshot_id"].as_str().unwrap());
+    fs::write(&request_file, serde_json::to_vec(&request).unwrap()).unwrap();
+    let prepared = successful_cli_json(&cli_prepared(&store, &request_file).await);
+    assert_eq!(prepared["reused"], false);
+    verify_prepared_paths(&store, &prepared);
+    // A request exactly at the file-size limit is valid; bound applies to bytes.
+    let mut at_limit = serde_json::to_vec(&request).unwrap();
+    at_limit.resize(64 * 1024, b' ');
+    fs::write(&request_file, at_limit).unwrap();
+    let reused = successful_cli_json(&cli_prepared(&store, &request_file).await);
+    assert_eq!(reused["reused"], true);
+    assert_eq!(reused["recipe_id"], prepared["recipe_id"]);
+
+    let mut extra = request.clone();
+    extra["extra"] = json!(true);
+    let mut path_escape = request.clone();
+    path_escape["source_path"] = json!("../outside.fna");
+    let mut overlong = request.clone();
+    overlong["source_path"] = json!("🧬".repeat(5000));
+    let mut missing = request.clone();
+    missing.as_object_mut().unwrap().remove("snapshot_id");
+    let duplicate = format!(
+        "{{\"reference\":\"{PREPARED_REFERENCE}\",{}",
+        &request.to_string()[1..]
+    );
+    for invalid in [
+        "{}".to_owned(),
+        "null".to_owned(),
+        "[]".to_owned(),
+        "{malformed JSON".to_owned(),
+        missing.to_string(),
+        duplicate,
+        extra.to_string(),
+        path_escape.to_string(),
+        overlong.to_string(),
+        format!("{request} {{}}"),
+        " ".repeat(64 * 1024 + 1),
+    ] {
+        fs::write(&request_file, invalid).unwrap();
+        let output = cli_prepared(&store, &request_file).await;
+        assert!(!output.status.success());
+        assert!(
+            output.stdout.is_empty(),
+            "errors must not look like JSON results"
+        );
+        assert!(!output.stderr.is_empty() && output.stderr.len() <= 2060);
+    }
+    fs::remove_file(&request_file).unwrap();
+    let output = cli_prepared(&store, &request_file).await;
+    assert!(!output.status.success());
+    assert!(output.stdout.is_empty());
+    let output = cli_prepared(&store, &fixture.root).await;
+    assert!(!output.status.success());
+    assert!(output.stdout.is_empty());
+    assert!(String::from_utf8_lossy(&output.stderr).contains("request file must be a regular file"));
+}
+
+#[cfg(unix)]
+#[tokio::test]
+async fn prepared_cli_rejects_fifo_before_opening_it() {
+    let fixture = Fixture::new();
+    let store = prepare_refseq_fixture(&fixture);
+    let request_file = fixture.root.join("prepared-request.fifo");
+    assert!(std::process::Command::new("mkfifo")
+        .arg(&request_file)
+        .status()
+        .unwrap()
+        .success());
+    let output = cli_prepared(&store, &request_file).await;
+    assert!(!output.status.success());
+    assert!(output.stdout.is_empty());
+    assert!(String::from_utf8_lossy(&output.stderr).contains("request file must be a regular file"));
 }

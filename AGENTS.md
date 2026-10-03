@@ -56,9 +56,14 @@ in the wrapper README, not hidden behind BioV or an undocumented catalog crawl.
   ordinary paths with explicit miss, ambiguity, unavailable and corrupt outcomes
 - Discovery scans durable relative records; no database is required. Validate
   moved-store discovery and complete ordinary-reader analysis without BioV
-- Analysis-ready derived views are a separate planned layer with input hashes,
+- Analysis-ready derived views are a separate layer with input hashes,
   commands, schema and scientific meaning; raw reuse need not duplicate payloads,
-  but portable exports need an explicit dependency/materialization scope
+  but portable exports need an explicit dependency/materialization scope. D14
+  implements a bounded prepared RefSeq FASTA index proof: established upstream
+  indexing, immutable raw references, recipe identity separate from output SHA,
+  verified reuse and independent moved-closure reading. Output-affecting code
+  changes require an explicit indexing-contract revision; do not claim general
+  transformation support from this one format-specific operation
 - No automatic cache/import migration, downloads, GC or distributed deployment is
   implied. Streaming file copies do not raise the native table route's independent
   64 MiB retained-data charge or establish large-data analytical execution

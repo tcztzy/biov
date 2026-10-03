@@ -52,6 +52,7 @@ nav:
   - Plugins: guides/plugins.md
   - Rust dataset MCP: guides/rust-datasets.md
   - Offline native storage: guides/native-storage.md
+  - Prepared FASTA indices: guides/prepared-fasta.md
   - Rust migration: guides/rust-migration.md
   - Native sequence contract: guides/sequence-contract.md
 - API Reference: reference/

@@ -33,7 +33,7 @@ pub(crate) fn resolve(store_root: &Path, request_file: &Path) -> Result<(), Stri
     write_result(&result)
 }
 
-fn read_request<T: DeserializeOwned>(path: &Path) -> Result<T, String> {
+pub(crate) fn read_request<T: DeserializeOwned>(path: &Path) -> Result<T, String> {
     // Reject FIFOs/devices before opening: opening a FIFO can block indefinitely.
     // Explicit request-file symlinks are allowed, unlike stored native paths.
     // Retain the handle check below for ordinary changes during opening. As with
@@ -70,18 +70,18 @@ fn decode_request<T: DeserializeOwned>(reader: impl Read) -> Result<T, String> {
     serde_json::from_slice(&bytes).map_err(|error| format!("invalid request JSON: {error}"))
 }
 
-fn write_result(value: &impl Serialize) -> Result<(), String> {
-    let mut bytes = serde_json::to_vec(value)
-        .map_err(|error| format!("cannot serialize storage result: {error}"))?;
+pub(crate) fn write_result(value: &impl Serialize) -> Result<(), String> {
+    let mut bytes =
+        serde_json::to_vec(value).map_err(|error| format!("cannot serialize result: {error}"))?;
     if bytes.len() > MAX_RESPONSE_BYTES {
-        return Err("storage result exceeds the 64 KiB limit".into());
+        return Err("result exceeds the 64 KiB limit".into());
     }
     bytes.push(b'\n');
     let mut stdout = io::stdout().lock();
     stdout
         .write_all(&bytes)
         .and_then(|_| stdout.flush())
-        .map_err(|error| format!("cannot write storage result: {}", error.kind()))
+        .map_err(|error| format!("cannot write result: {}", error.kind()))
 }
 
 #[cfg(test)]
