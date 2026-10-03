@@ -1,5 +1,10 @@
 # Identifier-backed analysis
 
+This guide describes the existing Python/fsspec provider-download cache. The
+separate [Rust native-storage slice](native-storage.md) copies already-present
+RefSeq/PDB native packages into immutable snapshots and resolves them offline.
+It does not automatically migrate this cache or change these Python entry points.
+
 BioV's computation boundary is deliberately small: it maps a persistent
 identifier to a validated file in the environment running the code. It does not
 wrap GC, alignment, parsing, or other analysis functions. The LLM can therefore

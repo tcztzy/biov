@@ -77,3 +77,14 @@ from biov.config import settings
 print(settings.config)  # application TOML file this process reads
 print(settings.cache_http)
 ```
+
+
+## Native snapshot roots
+
+The [native snapshot store](native-storage.md) has its own explicit configured
+store root and registration source root. These are separate from the existing
+Python `BIOV_HOME` artifact layout, managed environment root and analysis-output
+root. Existing source originals are copied; configuration does not migrate,
+rename or rewrite old caches. A moved store resolves using its new root without
+requiring the original registration source root. See the native-storage guide
+for the exact Rust/adapter options and current supported scope.

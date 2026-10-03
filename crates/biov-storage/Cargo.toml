@@ -1,0 +1,20 @@
+[package]
+name = "biov-storage"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+[dependencies]
+biov-identifiers = { path = "../biov-identifiers" }
+serde = { version = "=1.0.229", features = ["derive"] }
+serde_json = "=1.0.151"
+schemars = "=1.2.2"
+sha2 = "=0.10.9"
+md-5 = "=0.10.6"
+thiserror = "=2.0.21"
+tempfile = "=3.27.0"
+fs4 = { version = "=0.13.1", default-features = false, features = ["sync"] }
+
+[target.'cfg(unix)'.dependencies]
+rustix = { version = "=1.1.5", features = ["fs"] }

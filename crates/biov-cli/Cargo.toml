@@ -12,10 +12,12 @@ path = "src/main.rs"
 
 [dependencies]
 biov-data = { path = "../biov-data" }
+biov-storage = { path = "../biov-storage" }
 # rmcp 0.6.4 macros emit newer Tool fields absent in rmcp 0.6.0.
 rmcp-macros = "=0.6.0"
 rmcp = { version = "=0.6.0", default-features = false, features = ["base64", "macros", "server", "transport-io"] }
 serde_json = "1"
+serde = { version = "=1.0.229", features = ["derive"] }
 tokio = { version = "1", features = ["macros", "rt"] }
 
 [dev-dependencies]

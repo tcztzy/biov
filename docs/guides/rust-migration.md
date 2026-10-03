@@ -10,6 +10,10 @@ IPC through official rmcp stdio, without Python. The implemented bounded extensi
 `dataset_reopen`, reuses a saved JSON record and its paired IPC file after a
 server restart; its two-process acceptance is validated in the source-built
 Linux scope (SPEC T66–T67).
+A separate [native-storage slice](native-storage.md) adds immutable registration
+of existing RefSeq packages and explicitly declared PDB representations, with
+offline filesystem discovery. Its provider scope, tests and future prepared-data
+layer are distinct from the table workflow (SPEC D13/T70–T71).
 The rest of the rewrite remains planned; pandas, Biopython and RuRanges'
 Rust-backed interval kernels still support unmigrated features.
 
@@ -157,7 +161,10 @@ locks or source checkouts can supply useful version facts but do not replace a
 data-specific meaning/usage contract. Do not serialize a BioV/Python object as the
 only usable data representation.
 
-T69 tracks these open migrations. For each slice, preserve native scientific
+The new native-store library is an explicit registration path, not an automatic
+migration of any cache audited above. Its RefSeq checks and declared PDB contract
+do not make existing UniProt, AlphaFold, GEO or other legacy caches immutable or
+portability-compliant. T69 tracks these open migrations. For each slice, preserve native scientific
 semantics and known lineage, make unavailable metadata explicit, move a complete
 bundle to a new directory, and use a standard reader with BioV absent to verify
 identities/schema and analyze complete data. Test meaningful filtering or
@@ -248,7 +255,8 @@ Use responsibility boundaries for offline identifiers, formats, biological
 computation, provider/data/provenance, cache mechanics, tool lifecycle/execution,
 optional Python and CLI/MCP. There is no fixed small-crate budget and no reason
 to create empty crates. The current workspace adds `biov-identifiers`,
-`biov-data` and `biov-cli` to the existing `biov-core`/`biov-python` sequence slice.
+`biov-data`, `biov-cli` and the separate `biov-storage` library to the existing
+`biov-core`/`biov-python` sequence slice.
 Transport adapters call standalone Rust library APIs.
 
 Rust-side Polars is the primary analytical engine through MCP. The dataset API
@@ -382,11 +390,12 @@ target tests and checksums. See [maturin distribution](https://www.maturin.rs/di
 
 ## Source builds and native validation
 
-The Cargo workspace contains five members. The sequence pair is `biov-core`
+The Cargo workspace contains six members. The sequence pair is `biov-core`
 (library and development `biov-core` binary) and `biov-python` (PyO3 extension).
 The native dataset path adds `biov-identifiers` (offline biological identifiers),
 `biov-data` (Polars datasets and provenance) and `biov-cli` (the `biov-rs` MCP
-binary). Rust 1.89.0 is both the pinned build toolchain and declared MSRV. PyO3 is pinned to 0.26.0; the committed Cargo
+binary). `biov-storage` owns local immutable native snapshots and offline
+resolution without Polars or transport dependencies. Rust 1.89.0 is both the pinned build toolchain and declared MSRV. PyO3 is pinned to 0.26.0; the committed Cargo
 lockfile controls its transitive dependencies. Maturin 1.15.0 is the pinned PEP 517 build
 backend. The Python 3.12 stable ABI is selected for this small string/list-only
 boundary; no NumPy ABI or interpreter objects cross detached Rust computation.

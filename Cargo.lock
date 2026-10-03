@@ -166,9 +166,11 @@ version = "0.1.2"
 dependencies = [
  "base64 0.22.1",
  "biov-data",
+ "biov-storage",
  "polars",
  "rmcp",
  "rmcp-macros",
+ "serde",
  "serde_json",
  "sha2",
  "tokio",
@@ -211,6 +213,22 @@ version = "0.1.2"
 dependencies = [
  "biov-core",
  "pyo3",
+]
+
+[[package]]
+name = "biov-storage"
+version = "0.1.2"
+dependencies = [
+ "biov-identifiers",
+ "fs4",
+ "md-5",
+ "rustix",
+ "schemars",
+ "serde",
+ "serde_json",
+ "sha2",
+ "tempfile",
+ "thiserror",
 ]
 
 [[package]]
@@ -1251,6 +1269,16 @@ checksum = "6bd8c0d6c6ed0cd30b3652886bb8711dc4bb01d637a68105a3d5158039b418e6"
 dependencies = [
  "cc",
  "libc",
+]
+
+[[package]]
+name = "md-5"
+version = "0.10.6"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "d89e7ee0cfbedfc4da3340218492196241d89eefb6dab27de5df917a6d2e78cf"
+dependencies = [
+ "cfg-if",
+ "digest",
 ]
 
 [[package]]

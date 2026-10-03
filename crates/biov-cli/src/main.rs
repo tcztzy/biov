@@ -1,12 +1,15 @@
-//! Thin native command-line adapter. Stdout belongs exclusively to MCP.
+//! Thin native command-line adapter. MCP exclusively owns stdout while serving;
+//! one-shot storage commands write a single bounded JSON result there instead.
 mod mcp;
+mod storage_cli;
 
-use std::{ffi::OsString, path::PathBuf, process::ExitCode};
+use std::{collections::BTreeMap, ffi::OsString, path::PathBuf, process::ExitCode};
 
 use biov_data::DatasetStore;
+use biov_storage::NativeStore;
 use rmcp::{transport::stdio, ServiceExt};
 
-const HELP: &str = "BioV native dataset MCP server\n\nUsage:\n  biov-rs mcp --data-root DIR --output-root DIR\n  biov-rs --help\n  biov-rs --version\n\nThe MCP server uses JSON-RPC over stdio. Input paths are restricted to\n--data-root; exports are restricted to --output-root. No Python runtime is used.\nHelp, diagnostics, and errors are written to stderr.";
+const HELP: &str = "BioV native dataset and storage tools\n\nUsage:\n  biov-rs mcp --data-root DIR --output-root DIR [--store-root DIR]\n  biov-rs storage register --store-root DIR --source-root DIR --request-file JSON\n  biov-rs storage resolve --store-root DIR --request-file JSON\n  biov-rs --help\n  biov-rs --version\n\nThe MCP server uses JSON-RPC over stdio. Dataset input paths and storage\nregistration sources are restricted to --data-root; exports are restricted to\n--output-root. Optional --store-root enables durable native snapshots.\nOne-shot storage commands read at most 64 KiB of typed JSON and return one JSON\nresult on stdout. Resolution needs only the store, not the original source.\nNo Python runtime is used. Help, diagnostics, and errors go to stderr.";
 
 #[derive(Debug, PartialEq, Eq)]
 enum Command {
@@ -15,30 +18,58 @@ enum Command {
     Mcp {
         data_root: PathBuf,
         output_root: PathBuf,
+        store_root: Option<PathBuf>,
+    },
+    StorageRegister {
+        store_root: PathBuf,
+        source_root: PathBuf,
+        request_file: PathBuf,
+    },
+    StorageResolve {
+        store_root: PathBuf,
+        request_file: PathBuf,
     },
 }
 
 fn parse_args(args: impl IntoIterator<Item = OsString>) -> Result<Command, String> {
     let mut args = args.into_iter();
-    match args.next().as_deref() {
-        Some(command) if command == "--help" || command == "-h" => {
-            if args.next().is_some() {
-                return Err("unexpected argument after --help".into());
-            }
-            return Ok(Command::Help);
+    let command = args
+        .next()
+        .ok_or("missing command; expected mcp or storage")?;
+    if command == "--help" || command == "-h" {
+        if args.next().is_some() {
+            return Err("unexpected argument after --help".into());
         }
-        Some(command) if command == "--version" || command == "-V" => {
-            if args.next().is_some() {
-                return Err("unexpected argument after --version".into());
-            }
-            return Ok(Command::Version);
-        }
-        Some(command) if command == "mcp" => {}
-        Some(_) => return Err("unknown command; expected mcp".into()),
-        None => return Err("missing command; expected mcp".into()),
+        return Ok(Command::Help);
     }
-    let mut data_root = None;
-    let mut output_root = None;
+    if command == "--version" || command == "-V" {
+        if args.next().is_some() {
+            return Err("unexpected argument after --version".into());
+        }
+        return Ok(Command::Version);
+    }
+    let (mode, allowed): (&str, &[&str]) = if command == "mcp" {
+        ("mcp", &["--data-root", "--output-root", "--store-root"])
+    } else if command == "storage" {
+        match args.next().as_deref() {
+            Some(action) if action == "register" => (
+                "register",
+                &["--store-root", "--source-root", "--request-file"],
+            ),
+            Some(action) if action == "resolve" => ("resolve", &["--store-root", "--request-file"]),
+            Some(action) if action == "--help" || action == "-h" => {
+                if args.next().is_some() {
+                    return Err("unexpected argument after --help".into());
+                }
+                return Ok(Command::Help);
+            }
+            Some(_) => return Err("unknown storage command; expected register or resolve".into()),
+            None => return Err("missing storage command; expected register or resolve".into()),
+        }
+    } else {
+        return Err("unknown command; expected mcp or storage".into());
+    };
+    let mut options = BTreeMap::new();
     while let Some(arg) = args.next() {
         if arg == "--help" || arg == "-h" {
             if args.next().is_some() {
@@ -46,28 +77,49 @@ fn parse_args(args: impl IntoIterator<Item = OsString>) -> Result<Command, Strin
             }
             return Ok(Command::Help);
         }
-        let (slot, flag) = if arg == "--data-root" {
-            (&mut data_root, "--data-root")
-        } else if arg == "--output-root" {
-            (&mut output_root, "--output-root")
-        } else {
-            return Err("unknown argument; expected --data-root or --output-root".into());
-        };
-        if slot.is_some() {
+        let flag = allowed
+            .iter()
+            .copied()
+            .find(|flag| arg == *flag)
+            .ok_or_else(|| format!("unknown argument; expected {}", allowed.join(", ")))?;
+        if options.contains_key(flag) {
             return Err(format!("duplicate {flag}"));
         }
+        let kind = if flag == "--request-file" {
+            "file"
+        } else {
+            "directory"
+        };
         let value = args
             .next()
-            .ok_or_else(|| format!("{flag} requires a directory"))?;
-        if value.is_empty() || value.to_string_lossy().starts_with("--") {
-            return Err(format!("{flag} requires a directory"));
+            .ok_or_else(|| format!("{flag} requires a {kind}"))?;
+        if value.is_empty() || value.to_string_lossy().starts_with('-') {
+            return Err(format!("{flag} requires a {kind}"));
         }
-        *slot = Some(PathBuf::from(value));
+        options.insert(flag, PathBuf::from(value));
     }
-    Ok(Command::Mcp {
-        data_root: data_root.ok_or("missing required --data-root DIR")?,
-        output_root: output_root.ok_or("missing required --output-root DIR")?,
-    })
+    let mut required = |flag| {
+        options
+            .remove(flag)
+            .ok_or_else(|| format!("missing required {flag}"))
+    };
+    match mode {
+        "mcp" => Ok(Command::Mcp {
+            data_root: required("--data-root")?,
+            output_root: required("--output-root")?,
+            store_root: options.remove("--store-root"),
+        }),
+        "register" => Ok(Command::StorageRegister {
+            store_root: required("--store-root")?,
+            source_root: required("--source-root")?,
+            request_file: required("--request-file")?,
+        }),
+        "resolve" => Ok(Command::StorageResolve {
+            store_root: required("--store-root")?,
+            request_file: required("--request-file")?,
+        }),
+        _ => unreachable!("parser modes are fixed above"),
+    }
 }
 
 #[tokio::main(flavor = "current_thread")]
@@ -79,43 +131,60 @@ async fn main() -> ExitCode {
             return ExitCode::from(2);
         }
     };
-    let (data_root, output_root) = match command {
+    let result = match command {
         Command::Help => {
             eprintln!("{HELP}");
-            return ExitCode::SUCCESS;
+            Ok(())
         }
         Command::Version => {
             eprintln!("biov-rs {}", env!("CARGO_PKG_VERSION"));
-            return ExitCode::SUCCESS;
+            Ok(())
         }
+        Command::StorageRegister {
+            store_root,
+            source_root,
+            request_file,
+        } => storage_cli::register(&store_root, &source_root, &request_file),
+        Command::StorageResolve {
+            store_root,
+            request_file,
+        } => storage_cli::resolve(&store_root, &request_file),
         Command::Mcp {
             data_root,
             output_root,
-        } => (data_root, output_root),
+            store_root,
+        } => serve_mcp(data_root, output_root, store_root).await,
     };
-    let store = match DatasetStore::new(&data_root, &output_root) {
-        Ok(store) => store,
+    match result {
+        Ok(()) => ExitCode::SUCCESS,
         Err(error) => {
-            eprintln!("biov-rs: {error}");
-            return ExitCode::FAILURE;
-        }
-    };
-    // The official SDK owns initialization, framing, routing, and EOF shutdown.
-    // Never install a stdout logger: it would corrupt this transport.
-    let service = match mcp::DatasetServer::new(store).serve(stdio()).await {
-        Ok(service) => service,
-        Err(error) => {
-            eprintln!("biov-rs: MCP initialization failed: {error}");
-            return ExitCode::FAILURE;
-        }
-    };
-    match service.waiting().await {
-        Ok(_) => ExitCode::SUCCESS,
-        Err(error) => {
-            eprintln!("biov-rs: MCP service failed: {error}");
+            eprintln!("biov-rs: {}", mcp::bounded_text(&error, 2048));
             ExitCode::FAILURE
         }
     }
+}
+
+async fn serve_mcp(
+    data_root: PathBuf,
+    output_root: PathBuf,
+    store_root: Option<PathBuf>,
+) -> Result<(), String> {
+    let store = DatasetStore::new(&data_root, &output_root).map_err(|error| error.to_string())?;
+    let native_store = store_root
+        .map(NativeStore::new)
+        .transpose()
+        .map_err(|error| error.to_string())?;
+    // The official SDK owns initialization, framing, routing, and EOF shutdown.
+    // Never install a stdout logger: it would corrupt this transport.
+    let service = mcp::DatasetServer::new(store, data_root, native_store)
+        .serve(stdio())
+        .await
+        .map_err(|error| format!("MCP initialization failed: {error}"))?;
+    service
+        .waiting()
+        .await
+        .map_err(|error| format!("MCP service failed: {error}"))?;
+    Ok(())
 }
 
 #[cfg(test)]
@@ -127,12 +196,67 @@ mod tests {
     }
 
     #[test]
-    fn parses_required_roots_in_either_order() {
+    fn parses_required_roots_in_either_order_and_optional_storage() {
         assert_eq!(
             args(&["mcp", "--output-root", "results", "--data-root", "input"]).unwrap(),
             Command::Mcp {
                 data_root: "input".into(),
-                output_root: "results".into()
+                output_root: "results".into(),
+                store_root: None,
+            }
+        );
+        assert_eq!(
+            args(&[
+                "mcp",
+                "--store-root",
+                "saved",
+                "--data-root",
+                "input",
+                "--output-root",
+                "results"
+            ])
+            .unwrap(),
+            Command::Mcp {
+                data_root: "input".into(),
+                output_root: "results".into(),
+                store_root: Some("saved".into()),
+            }
+        );
+    }
+
+    #[test]
+    fn parses_storage_commands_without_a_source_for_resolution() {
+        assert_eq!(
+            args(&[
+                "storage",
+                "register",
+                "--request-file",
+                "request.json",
+                "--source-root",
+                "input",
+                "--store-root",
+                "saved"
+            ])
+            .unwrap(),
+            Command::StorageRegister {
+                store_root: "saved".into(),
+                source_root: "input".into(),
+                request_file: "request.json".into(),
+            }
+        );
+        assert_eq!(
+            args(&[
+                "storage",
+                "resolve",
+                "--store-root",
+                "saved",
+                "--request-file",
+                "request.json"
+            ])
+            .unwrap(),
+            Command::StorageResolve {
+                store_root: "saved".into(),
+                request_file: "request.json".into(),
             }
         );
     }
@@ -146,6 +270,7 @@ mod tests {
             vec!["mcp", "--unknown"],
             vec!["mcp", "--data-root"],
             vec!["mcp", "--data-root", "--output-root", "results"],
+            vec!["mcp", "--data-root", "-h"],
             vec![
                 "mcp",
                 "--data-root",
@@ -155,7 +280,51 @@ mod tests {
                 "--output-root",
                 "out",
             ],
+            vec!["mcp", "--store-root", "saved", "--store-root", "saved"],
             vec!["--help", "extra"],
+            vec!["--version", "extra"],
+            vec!["storage"],
+            vec!["storage", "other"],
+            vec!["storage", "register"],
+            vec!["storage", "resolve"],
+            vec!["storage", "resolve", "--request-file"],
+            vec!["storage", "resolve", "--request-file", ""],
+            vec!["storage", "resolve", "--source-root", "input"],
+            vec![
+                "storage",
+                "register",
+                "--store-root",
+                "saved",
+                "--source-root",
+                "input",
+            ],
+            vec![
+                "storage",
+                "register",
+                "--store-root",
+                "saved",
+                "--request-file",
+                "r.json",
+            ],
+            vec![
+                "storage",
+                "register",
+                "--source-root",
+                "input",
+                "--request-file",
+                "r.json",
+            ],
+            vec![
+                "storage",
+                "resolve",
+                "--store-root",
+                "saved",
+                "--request-file",
+                "r.json",
+                "--request-file",
+                "r.json",
+            ],
+            vec!["storage", "--help", "extra"],
         ] {
             assert!(args(&invalid).is_err(), "unexpectedly accepted {invalid:?}");
         }
@@ -163,8 +332,15 @@ mod tests {
 
     #[test]
     fn exposes_help_and_version_without_roots() {
-        assert_eq!(args(&["--help"]).unwrap(), Command::Help);
-        assert_eq!(args(&["mcp", "--help"]).unwrap(), Command::Help);
+        for words in [
+            &["--help"][..],
+            &["mcp", "--help"],
+            &["storage", "--help"],
+            &["storage", "register", "--help"],
+            &["storage", "resolve", "--help"],
+        ] {
+            assert_eq!(args(words).unwrap(), Command::Help);
+        }
         assert_eq!(args(&["--version"]).unwrap(), Command::Version);
     }
 }

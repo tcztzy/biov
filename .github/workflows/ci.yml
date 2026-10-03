@@ -136,4 +136,5 @@ jobs:
           BIOV_TEST_BINARY=/tmp/biov-native/bin/biov-rs \
             BIOV_STANDALONE_PYTHON=/tmp/biov-standalone-arrow/bin/python \
             /tmp/biov-portability-driver/bin/python -m pytest \
-            "$GITHUB_WORKSPACE/tests/test_native_bundle_portability.py" -q
+            "$GITHUB_WORKSPACE/tests/test_native_bundle_portability.py" \
+            "$GITHUB_WORKSPACE/tests/test_native_storage_portability.py" -q
