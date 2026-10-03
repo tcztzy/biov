@@ -266,6 +266,9 @@ fn refseq(
             found_accession = true;
         }
         for file in assembly.files {
+            if file.file_type.trim().is_empty() {
+                return Err(package("catalog fileType must not be empty"));
+            }
             if assembly.accession.is_none() && file.file_type != "DATA_REPORT" {
                 return Err(package(
                     "accessionless catalog groups may declare only global DATA_REPORT metadata",

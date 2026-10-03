@@ -274,14 +274,16 @@ large-store indexing/query design. Do not rehash a multi-terabyte input for each
 future analytical batch; such work needs a separately validated verification and
 index strategy.
 
-The implementation uses a store-local filesystem lock and atomic no-replace
-publication. A replacing rename is insufficient for immutable storage. Linux and
-Apple publication use no-replace rename support, Windows uses its non-replacing
-rename behavior, and unsupported platforms/filesystems return a dedicated error.
-Only tested platforms are validated; these implementation branches are not
-release or distributed-filesystem claims. Symlinks, special files, traversal and
-control-character paths are rejected. Filesystem roots and concurrent writers
-remain inside a trusted operator boundary.
+The implementation uses a store-local filesystem lock and checks for an existing
+target before publication. Linux's tested no-clobber publication uses Rustix
+`NOREPLACE`; Android/Apple also select that primitive but are unverified. The
+Windows branch uses `std::fs::rename` after the cooperative lock and existence
+checks. Its atomic no-replace behavior is unverified and is not guaranteed here;
+a replacing rename is insufficient for immutable storage. Unsupported targets
+and unsupported no-replace primitives return a dedicated error. These branches
+are not release or distributed-filesystem claims. Symlinks, special files,
+traversal and control-character paths are rejected. Filesystem roots and concurrent
+writers remain inside a trusted operator boundary.
 
 ### Analyze a moved RefSeq snapshot without BioV
 

@@ -136,12 +136,15 @@ not catalogued; native metadata remains untouched. Trusted root permissions are
 required: these checks are not a sandbox against hostile concurrent writers.
 
 A unique staging directory is completed and validated first. Publication uses an
-established `fs4` exclusive per-canonical-accession lock and an atomic no-replace
-directory rename (Rustix `NOREPLACE` on Linux/Android/Apple, non-replacing directory
-rename on Windows). Existing snapshots are verified and either reused or rejected;
-corrupt winners are never replaced. Immutability is an API publication contract,
-not operating-system write protection; later edits to ordinary snapshot files are
-detected by verification. Other targets return unsupported publication.
+established `fs4` exclusive per-canonical-accession lock and checks for an existing
+target before rename. Linux's tested no-clobber publication uses Rustix `NOREPLACE`;
+Android/Apple also select that primitive but are unverified. The Windows branch
+uses `std::fs::rename` after the cooperative lock and existence checks; its atomic
+no-replace behavior is unverified and is not guaranteed here. Existing snapshots
+found under the lock are verified and either reused or rejected; a detected
+corrupt snapshot is rejected without replacement. Immutability is an API
+publication contract, not operating-system write protection; later edits to ordinary
+snapshot files are detected by verification. Other targets return unsupported publication.
 Files, directory trees, newly created parent entries and publication parents are
 synced on Unix. Linux behavior is tested; other platforms/filesystems, network
 filesystems, power-loss recovery and hostile-writer races are not validated.

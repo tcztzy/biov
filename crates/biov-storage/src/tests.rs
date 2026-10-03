@@ -396,6 +396,58 @@ fn declared_assembly_never_resolves_as_entry_by_default() {
     ));
 }
 #[test]
+fn refseq_catalog_file_types_reject_empty_values_and_preserve_unknown_nonempty_types() {
+    for file_type in ["", " ", "\t\r\n", "\u{2003}", "FUTURE_NATIVE_FORMAT"] {
+        let f = Fixture::new();
+        let request = f.refseq();
+        let root = f.source_root.join("package");
+        let path = root.join("ncbi_dataset/data/dataset_catalog.json");
+        let mut catalog: serde_json::Value =
+            serde_json::from_slice(&fs::read(&path).unwrap()).unwrap();
+        catalog["assemblies"][1]["files"][0]["fileType"] = file_type.into();
+        fs::write(path, serde_json::to_vec_pretty(&catalog).unwrap()).unwrap();
+        // Keep every native checksum valid, including the edited catalog, so a
+        // checksum failure cannot conceal an accepted empty fileType.
+        let mut md5 = String::new();
+        for file in crate::tree::inventory(&root, None)
+            .unwrap()
+            .iter()
+            .filter(|e| e.kind == EntryKind::File && e.path.starts_with("ncbi_dataset/data/"))
+        {
+            md5.push_str(&format!(
+                "{:x}  {}\n",
+                Md5::digest(fs::read(root.join(&file.path)).unwrap()),
+                file.path
+            ));
+        }
+        fs::write(root.join("md5sum.txt"), md5).unwrap();
+        let result = f.store().register(&f.source_root, request);
+        if file_type.trim().is_empty() {
+            let error = result.unwrap_err();
+            assert!(matches!(error, StorageError::InvalidPackage(_)));
+            assert!(error
+                .to_string()
+                .contains("catalog fileType must not be empty"));
+            assert!(matches!(f.resolve("native_"), Resolution::Miss));
+            assert!(!f.store_root.join("artifacts").exists());
+        } else {
+            let registration = result.unwrap();
+            assert_eq!(
+                receipt(&f, &registration).representations["native_future_native_format"],
+                ["ncbi_dataset/data/GCF_000005845.2/genome.fna"]
+            );
+            assert!(matches!(
+                f.resolve("native_future_native_format"),
+                Resolution::Ready { .. }
+            ));
+        }
+        assert_eq!(
+            fs::read_dir(f.store_root.join(".staging")).unwrap().count(),
+            0
+        );
+    }
+}
+#[test]
 fn dehydrated_wrong_catalog_md5_and_missing_coverage_never_publish() {
     for mode in [
         "missing",
