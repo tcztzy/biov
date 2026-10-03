@@ -30,6 +30,7 @@ def main(filename: str) -> None:
             "crates/biov-python/src/lib.rs",
             "crates/biov-core/src/bin/biov-core.rs",
             "tests/test_native_sequence.py",
+            "tests/test_native_metrics.py",
             "docs/guides/sequence-contract.md",
         }
         assert required <= paths, required - paths

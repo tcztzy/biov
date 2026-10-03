@@ -8,7 +8,6 @@ import numpy as np
 import numpy.typing as npt
 import pandas as pd
 from Bio.Seq import Seq as _Seq
-from Bio.SeqUtils import gc_fraction
 from Bio.SeqUtils.ProtParam import ProteinAnalysis
 from numpy.typing import NDArray
 from pandas import DataFrame, Series
@@ -35,6 +34,8 @@ from ._native import (
     SequenceValidationError,
     normalize_sequences,
     reverse_complements,
+    sequence_lengths,
+    weighted_gc_fractions,
 )
 
 SequenceKind = Literal["dna", "rna", "protein"]
@@ -445,10 +446,18 @@ class SequenceAccessor:
     @property
     def length(self) -> Series:
         """Nullable sequence lengths."""
-        values = [
-            pd.NA if value is pd.NA else len(cast(str, value)) for value in self._array
-        ]
+        values = sequence_lengths(
+            self._native_values(), kind=self._array.dtype.sequence_kind
+        )
         return Series(values, index=self._obj.index, dtype="Int64", name=self._obj.name)
+
+    def _native_values(self) -> list[str | None]:
+        """Adapt pandas missing markers to the native nullable-list boundary.
+
+        Returns:
+            Present strings and one None per missing row.
+        """
+        return [None if value is pd.NA else cast(str, value) for value in self._array]
 
     def _require_nucleic(self) -> None:
         if self._array.dtype.sequence_kind not in {"dna", "rna"}:
@@ -482,10 +491,9 @@ class SequenceAccessor:
     def reverse_complement(self) -> Series:
         """Return DNA or RNA reverse complements with the same dtype."""
         self._require_nucleic()
-        adapted = [
-            None if value is pd.NA else cast(str, value) for value in self._array
-        ]
-        values = reverse_complements(adapted, kind=self._array.dtype.sequence_kind)
+        values = reverse_complements(
+            self._native_values(), kind=self._array.dtype.sequence_kind
+        )
         return Series(
             values,
             index=self._obj.index,
@@ -494,14 +502,11 @@ class SequenceAccessor:
         )
 
     def gc_fraction(self) -> Series:
-        """Return Biopython weighted-IUPAC GC fractions."""
+        """Return native weighted-IUPAC GC fractions."""
         self._require_nucleic()
-        values = [
-            pd.NA
-            if value is pd.NA
-            else gc_fraction(cast(str, value), ambiguous="weighted")
-            for value in self._array
-        ]
+        values = weighted_gc_fractions(
+            self._native_values(), kind=self._array.dtype.sequence_kind
+        )
         return Series(
             values, index=self._obj.index, dtype="Float64", name=self._obj.name
         )
