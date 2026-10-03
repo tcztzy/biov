@@ -188,6 +188,7 @@ version = "0.1.2"
 dependencies = [
  "base64 0.22.1",
  "biov-identifiers",
+ "biov-prepared",
  "csv",
  "csv-core",
  "polars",
@@ -213,10 +214,12 @@ dependencies = [
 name = "biov-prepared"
 version = "0.1.2"
 dependencies = [
+ "biov-core",
  "biov-identifiers",
  "biov-storage",
  "fs4",
  "md-5",
+ "noodles-core",
  "noodles-fasta",
  "rustix",
  "schemars",

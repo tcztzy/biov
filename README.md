@@ -20,6 +20,9 @@ coordinates, units and complete data.
 - Open local CSV tables, query complete data with Rust Polars, and export/retrieve
   Arrow IPC through the Python-free [native MCP slice](docs/guides/rust-datasets.md);
   reopen saved native artifacts with their records after a server restart
+- Generate typed GC-window datasets from one exact [prepared RefSeq
+  FASTA](docs/guides/prepared-fasta.md#native-sequence-metric-tables), with explicit
+  canonical and weighted-IUPAC policies; use the same native query/export/reopen workflow
 - Use the migrated `crisprprimer`, `crisprprimer-docker`, `biov-azimuth` and
   paired-read alignment interfaces
 

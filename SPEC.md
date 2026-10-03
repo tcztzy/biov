@@ -10,6 +10,7 @@ companions have their own acceptance gate (T68), with legacy migration gaps (T69
 D13 specifies the separate bounded native-source snapshot slice and its acceptance
 gates (T70–T71); five-source research does not imply five implemented adapters.
 D14 and T72 describe the bounded prepared RefSeq FASTA indexing extension.
+D15 and T73 connect one exact prepared sequence to bounded native metric tables.
 
 ## §G GOAL
 **Non-negotiable: all cache and data designs must let an agent quickly understand
@@ -498,14 +499,14 @@ metadata, software information, output byte count and SHA-256. The upstream
 Polars IPC writer's oldest compatibility setting emits strings as Arrow
 `LargeUtf8` (`large_string` in PyArrow), supporting direct ordinary-reader
 filtering without a BioV wrapper or reader-side string cast. Other primitive
-logical types and strict record v2 fields are unchanged. Files persist
+logical types and strict CSV record v2 fields are unchanged. Files persist
 independently of the server session and are not automatically deleted on dataset
 release or shutdown. Dataset and artifact handles both expire with the session.
 `dataset_release` frees only a dataset handle and leaves saved exports intact.
 
 New exports additionally save `artifact_<id>.manifest.json` (manifest version 1)
 and `artifact_<id>.README.md` beside the existing Arrow and strict version-2
-record. The manifest uses same-directory basenames for Arrow/record/README,
+CSV record. The manifest uses same-directory basenames for Arrow/record/README,
 records Arrow and record byte sizes/SHA-256, complete row count, ordered
 column types/null counts and explicitly unknown column semantics. It retains
 caller-declared scientific metadata, syntax-only parsed identifier/version facts,
@@ -521,7 +522,8 @@ The README has a standard-PyArrow example requiring no BioV: verify file sizes
 and hashes, read all rows, check schema/count, filter and summarize. These
 companions are descriptive, untrusted data; paired reopening still checks only
 the strict JSON record and IPC and does not require or validate companions.
-The existing strict record v2 schema is unchanged. Companion limits are 128 KiB
+The existing strict CSV record v2 schema is unchanged; D15 separately introduces
+record v3 for sequence metrics. Companion limits are 128 KiB
 for the manifest and 16 KiB for the README, checked with the existing caps before
 any final filename is published. Publication of all four files is not a single
 atomic transaction; I/O failure can leave a partial group, but no completed
@@ -559,7 +561,7 @@ boundary, and a final offset equal to the values-buffer length. Charge complete
 string payload plus the existing 17 bytes/cell and retained datasets under the
 same 64 MiB budget; no bound is relaxed for compatibility.
 
-Read initial-slice record version 1 and version 2; export version 2 with a
+Read initial-slice CSV record version 1 and version 2; export CSV version 2 with a
 `reopen_verification` field that is null for CSV-opened datasets. Re-exporting
 old native `Utf8View` uses the upstream compatible writer and emits `LargeUtf8`.
 This is one-way runtime compatibility: earlier development readers supporting
@@ -975,11 +977,79 @@ Feature: Independently readable prepared reference indexing
     And no input normalization, renaming or whole-sequence allocation occurs
 ```
 
+D15: Native sequence-aware tables connect one already verified D14 RefSeq genome
+FASTA preparation to D12 Rust Polars. The native `dataset_fasta_windows` tool
+requires canonical exact reference, snapshot ID, selected native source path,
+exact current recipe ID, exact opaque sequence ID and positive window width
+(at most 1 MiB). Preview defaults to 5 rows and is bounded to 50. It never creates
+a missing preparation, selects a latest snapshot/first sequence, downloads,
+normalizes or changes native/prepared files. Established noodles indexed queries
+extract bounded windows; native/prepared identities are verified before and after
+reading, and conservative row/cell/identifier charges precede table allocation.
+The independent 64 MiB retained-session charge and 16-dataset limit remain intact;
+no process-wide peak-memory, large-data execution or speed guarantee is implied.
+
+Complete non-overlapping windows use source-sequence-relative zero-based half-open
+coordinates; a final partial row is retained. Ordered columns are `sequence_id`
+(string), `start`, `end`, `length` (int64 bases), `is_full_window` (boolean),
+`canonical_base_count`, `gc_base_count` (int64 bases), nullable `gc_fraction` and
+`weighted_gc_fraction` (dimensionless float64). Canonical GC counts literal G/C
+only and divides by case-insensitive A/C/G/T; all ambiguity is excluded and a zero
+denominator is null. Weighted GC preserves existing core equal-base-set IUPAC
+semantics, with every base in the denominator. Whole-sequence counts/fractions
+are accumulated in the same pass and returned as `sequence_summary`; fractions
+are not averages of row percentages.
+
+The result is an ordinary dataset handle/schema/count/preview plus that summary.
+Existing complete-data query/export/release and paired-record reopen work on the
+typed table. Origin is structured lineage, separate from historical operation
+handles: exact reference/snapshot/recipe, sequence ID/length, window width,
+FAI/dictionary hashes, native FASTA hash/size, coordinate/GC policies and algorithm
+revision. No CSV schema-policy claim is attached to FASTA. Its strict export/reopen record
+is version 3, reserved for this validated sequence origin; existing CSV records
+remain version 2 and record versions 1/2 remain readable. Portable companions
+explain known column meanings without guessing species or provider versions.
+A four-file window Arrow export is independent of raw source/prepared paths;
+recomputation requires their dependency closure. Reopen preserves supplied origin
+while verifying artifact consistency, never its authenticity or raw inputs.
+
+### D15 acceptance cases
+
+```gherkin
+Feature: Exact native sequence metrics with complete portable table results
+  Scenario: Scientific semantics and bounded previews
+    Given an exact verified prepared mixed-case IUPAC DNA sequence
+    When I request its positive-width windows by exact sequence and recipe IDs
+    Then all windows use zero-based half-open source-relative coordinates
+    And the final partial window is retained
+    And all-ambiguous canonical GC is null while weighted GC is IUPAC-defined
+    And the whole-sequence summary agrees with independent complete-base counts
+    And a bounded preview is not substituted for complete table execution
+
+  Scenario: Export, restart and independently move complete results
+    Given a complete window dataset with more rows than the preview
+    When I filter, sort and export through the existing dataset tools
+    Then source identity, recipe, policies and operations remain discoverable
+    When a new process reopens the saved record and Arrow pair without raw inputs
+    Then a fresh handle preserves full typed rows and recorded lineage
+    When the four-file export moves and historical directories disappear
+    Then a standard PyArrow reader without BioV verifies full records and summaries
+
+  Scenario: Exact selection and allocation failures remain read-only
+    Given a missing/corrupt preparation or mismatched recipe/sequence selector
+    When metrics are requested
+    Then no new preparation or dataset handle is published
+    Given a window request exceeding the remaining session row/cell memory charge
+    When preflight rejects it
+    Then existing data and all available handle slots are preserved
+```
+
 ## §I INTERFACES
 The following entries describe the existing Python interfaces unless marked
 otherwise. The independent Rust MCP dataset route is specified in D12 and tracked
 in T63–T67; the native dataset guide records its verified scope.
 
+- native sequence tool: `dataset_fasta_windows` with configured native store → D15 exact prepared sequence windows, same-pass whole summary and D12 typed-table query/export/reopen; no Python analysis wrapper
 - native prepared API: `biov_prepared::PreparedStore::new(store_root)` and `prepare_fasta(PrepareFastaRequest)` → D14; CLI `biov-rs prepared fasta --store-root DIR --request-file JSON` and MCP `prepared_fasta` are thin bounded adapters
 - native cmd: `biov-rs storage register --store-root DIR --source-root DIR --request-file JSON` and `biov-rs storage resolve --store-root DIR --request-file JSON` → thin adapters for D13, no downloads
 - native tool: `storage_register` and `storage_resolve` through `biov-rs mcp --data-root DIR --output-root DIR --store-root DIR` → the same bounded offline native-store contracts; `--store-root` is optional for the existing dataset-only route
@@ -1231,6 +1301,8 @@ T70|x|implement the D13 bounded Rust native-store library and validate exact Ref
 T71|planned|add further native semantic adapters and analysis-ready derived views only through independent provider/format contracts; separately gate transactional downloads/hydration, import/result lineage, optional indices, explicit GC, large-data execution and distributed storage; five-source observations are not implementation claims|D0,D9,D10,D13,V77,V78
 
 T72|x|implement and independently validate D14 pinned RefSeq genome FASTA preparation with upstream noodles-fasta, conventional FAI/TSV outputs, bounded streaming, recipe invalidation, verified reuse, atomic publication and moved offline standard-reader acceptance; source-built Linux passes 25 prepared-core tests, 21 installed CLI/MCP cases and 10 independent portability cases including actual RefSeq and SIGKILL/retry; see prepared guide for adversarial coverage and explicit platform/input limits|D0,D9,D13,D14,V77,V78,V79
+
+T73|x|implement D15 exact prepared RefSeq sequence-window GC tables and same-pass whole counts, conservative allocation preflight, structured origin/known column meanings and existing full-query/export/reopen integration; all four installed Linux acceptance cases pass, including offline moved standalone PyArrow 25.0.1 analysis without BioV, actual E. coli complete 465-window counts and 400001-row rejection preserving all handle slots; see prepared guide for bounded scope and core validation|D0,D9,D10,D12,D13,D14,D15,V75,V77,V79
 
 ## §B BUGS
 id|date|cause|fix

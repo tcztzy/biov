@@ -2,10 +2,11 @@
 
 Runtime-independent preparation of one exact, registered plain RefSeq genomic
 FASTA. This crate depends on `biov-storage` and the pinned established
-`noodles-fasta =0.66.0` reader/indexer/writer, not Polars, Arrow, Tokio, MCP or
-Python. It does not copy, rewrite, hardlink, normalize or add files inside native
-snapshots. No downloads, generic transforms, compression, GC or export command
-are implemented.
+`noodles-fasta =0.66.0` reader/indexer/writer and indexed queries, with
+`noodles-core =0.20.0` coordinates and `biov-core` nucleotide GC computation,
+not Polars, Arrow, Tokio, MCP or Python. It does not copy, rewrite, hardlink,
+normalize or add files inside native snapshots. No downloads, generic transforms,
+compression, garbage collection or export command are implemented.
 
 ## API
 
@@ -28,6 +29,63 @@ trusted UTF-8 store root. Preparation errors do not replace published results.
 The serialized result is at most 64 KiB and contains recipe identity, reuse flag,
 sequence/base counts, and store-relative plus execution-host paths to the source,
 FAI, dictionary, provenance and README. Host paths are not transfer mechanisms.
+
+### Read-only indexed window metrics
+
+`PreparedStore::preflight_fasta_window_metrics(FastaWindowMetricsRequest)` selects
+one exact sequence from an **existing** preparation. The request has flat fields
+`reference`, `snapshot_id`, `source_path`, `recipe_id`, `sequence_id` and
+`window_size`; the first three are the same exact native selection as preparation.
+The full lowercase `sha256-` recipe pin must match the current indexing recipe.
+Sequence names are exact opaque identifiers, including case, leading zeroes and
+punctuation. A text such as `0001:alt` is a name, not a region expression.
+
+Preflight independently verifies the complete native snapshot, regenerates FAI
+and dictionary identities into hash-only sinks, checks the complete saved
+provenance/output bundle, decodes the verified FAI using noodles and returns a
+`FastaMetricsSelection`. It never creates or repairs an absent/corrupt preparation.
+Selection metadata includes the exact sequence length and `window_row_count`
+before a consumer allocates any result columns, plus native/recipe/source/index
+identities. Its `source_path` is store-relative, including the pinned native
+snapshot path; the request's `source_path` is relative to that snapshot's source.
+
+`selection.stream_windows(|row| ...)` emits `FastaWindowMetric` rows in sequence
+order. Coordinates are zero-based, half-open: `[0,window_size)`, then contiguous
+nonoverlapping windows, with a final shorter window if necessary. `length` is
+`end - start`, and `is_full_window` explicitly identifies full-width windows.
+The positive width is at most 1,048,576 bases. Each noodles indexed query has
+explicit bounded endpoints; no unbounded full-contig query is used. The selected
+FAI record is retained alone during streaming, avoiding a full-index name search
+for every window. LF/CRLF and native ASCII case do not change scientific counts.
+
+Rows and the same-pass `FastaMetricsSummary` contain:
+
+- `canonical_base_count`: the count of literal A/C/G/T, case-insensitive
+- `gc_base_count`: the count of literal G/C, case-insensitive
+- `gc_fraction`: G/C divided by canonical A/C/G/T only, null when none exist
+- `weighted_gc_fraction`: equal-weight IUPAC GC probability, divided by all bases
+
+For weighted GC, G/C/S contribute 1; A/T/W contribute 0; R/Y/K/M/N contribute
+1/2; B/V contribute 2/3; D/H contribute 1/3. Whole-sequence aggregation reuses
+`biov-core::sequence::nucleotide_gc_counts` and adds exact sixths before final
+floating-point division. It is not an average of per-window fractions and does
+not read the sequence a second time for its summary. All-ambiguous windows keep
+their bases and weighted values rather than disappearing or becoming canonical.
+The canonical metric differs from definitions that count S or W as canonical.
+
+The input snapshot and prepared output identities are verified again after
+emission and before success. A callback consumer must discard every emitted row
+if streaming returns an error; a table consumer must not publish its handle
+until success. Source and prepared files stay unchanged. The trusted-local-writer
+boundary and consistency, rather than authenticity, caveats below still apply.
+
+The indexed sequence buffer is capped per query; normalization for validated
+core metrics uses an additional at-most-window-sized temporary string. FAI
+metadata has the existing separate 16 MiB bound, and I/O buffers are 64 KiB.
+These are independent allocation bounds, not an aggregate peak-memory guarantee.
+This crate does not retain the emitted table or impose a total sequence byte
+cap. Table/session consumers must independently preflight the complete row count
+and retained-data budget; a large FASTA does not imply an unbounded table route.
 
 ## Layout and portable dependency closure
 

@@ -12,8 +12,7 @@ server restart; its two-process acceptance is validated in the source-built
 Linux scope (SPEC T66–T67).
 A separate [native-storage slice](native-storage.md) adds immutable registration
 of existing RefSeq packages and explicitly declared PDB representations, with
-offline filesystem discovery. Its provider scope, tests and future prepared-data
-layer are distinct from the table workflow (SPEC D13/T70–T71).
+offline filesystem discovery. The [prepared RefSeq FASTA](prepared-fasta.md) extension adds conventional FAI/TSV indices (D14/T72); its bounded `dataset_fasta_windows` tool connects exact prepared sequence access to Rust Polars tables (D15/T73). Canonical GC excludes ambiguity and is null without canonical bases; weighted GC retains the existing core IUPAC policy with every base in its denominator. Other providers and generalized prepared transforms remain separate future work.
 The rest of the rewrite remains planned; pandas, Biopython and RuRanges'
 Rust-backed interval kernels still support unmigrated features.
 
@@ -279,7 +278,9 @@ cannot be distinguished from the original by those checks. Recorded provenance
 and biological metadata are not authenticated, and reopening verification is
 retained in subsequent exports. New exports also have a same-directory README
 and manifest with relative file names for direct use without BioV. They do not
-change the strict record v2 schema or become prerequisites for paired reopening.
+change the strict CSV record v2 schema or become prerequisites for paired reopening.
+D15 sequence-origin exports use strict record v3 to describe the additional typed
+lineage; prior CSV records v1/v2 remain readable.
 The current reader accepts prior `Utf8View` and new `LargeUtf8` native strings;
 old results re-export through the standard compatible writer. Earlier development readers supporting
 only `Utf8View` cannot reopen new

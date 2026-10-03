@@ -11,6 +11,8 @@ seventh tool. Its implementation and two-process acceptance are validated in the
 Linux source-built scope under SPEC T66–T67. Desktop-client integration and
 portable prebuilt releases remain unclaimed.
 
+The bounded [prepared FASTA metric tool](prepared-fasta.md#native-sequence-metric-tables) also creates native typed window datasets for these query/export/reopen tools. It requires an exact existing native snapshot and preparation, and uses strict record version 3 for its structured sequence origin; CSV exports remain version 2 and earlier records stay readable.
+
 All BioV cache/data designs must remain quickly understandable and usable for
 analysis without BioV (SPEC D0). New native exports therefore include a small
 [portable result bundle](#use-a-result-without-biov), while original provider
@@ -96,13 +98,13 @@ Keep the four same-directory files for one export together, preserving names:
 
 ```text
 artifact_<id>.arrow          complete standard Arrow IPC file
-artifact_<id>.json           mandatory strict BioV export record, version 2
+artifact_<id>.json           mandatory strict BioV export record, version 2 for CSV / 3 for sequence metrics
 artifact_<id>.manifest.json  portable descriptive manifest, version 1
 artifact_<id>.README.md      ordinary-reader instructions for this result
 ```
 
 Here `<id>` is the generated 32-character lowercase hexadecimal artifact ID.
-Copy or move these files as a group; the original CSV, BioV executable/package,
+Copy or move these files as a group; the original CSV or FASTA, BioV executable/package,
 MCP session, repository and original absolute directory are not needed for
 independent reading. The Arrow format is ordinary IPC, not a proprietary BioV
 container. Existing exports with only the record and Arrow remain readable;
@@ -130,8 +132,10 @@ The manifest is a discoverable map of the saved result:
   `null_count`, `description`, `units` and `coordinates`. Logical types are
   `string`, `int64`, `float64` and `boolean`. `nullable: true` describes the
   allowed field schema; `null_count` reports actual missing values. Column
-  descriptions/units/coordinates are null because this slice has no verified
-  per-column semantic declaration. A name such as `count` is not a definition
+  descriptions/units/coordinates remain null for CSV because it has no verified
+  per-column semantic declaration. Generated D15 sequence metrics supply their
+  known definitions and units, plus source-relative coordinates for start/end.
+  A generic CSV name such as `count` is not a definition
 - `scientific_metadata`: the dataset's existing caller declarations or nulls;
   a numeric type is not a unit and an identifier does not establish sample identity
 - `biological_identifier`: parsed namespace, accession, base accession and
@@ -142,16 +146,20 @@ The manifest is a discoverable map of the saved result:
   input-consistency state. `historical_path` is relative to the original data
   root, explicitly not a bundle member; `required_for_reading` is false. The
   source itself is not automatically included or reverified during an independent
-  result read
+  result read. D15 sequence origins instead identify the registered source-relative
+  FASTA path and format, with the exact native FASTA byte identity
 - `lineage`: ordered operations, originally declared schema, string-safe CSV
-  policy and any reopen-verification context. Its references are historical
+  policy for CSV, structured `sequence_origin` for D15 metrics and any
+  reopen-verification context. Its references are historical
   evidence, not files or handles needed for reading the result
 - `software`, `versions`, `version_semantics`, `trust`: software facts, explicit
   unknown reference/provider versions, and the boundary between supplied claims
   and performed checks
 
 Version numbers have separate meanings. `manifest_version: 1` versions the
-companion layout; `record_version: 2` versions the strict export/reopen record.
+companion layout; `record_version: 2` versions the strict CSV export/reopen record,
+and version 3 adds the validated D15 sequence-origin schema. Record versions 1/2
+remain supported without pretending to contain sequence-origin fields.
 BioV and Polars versions describe software. None supplies a biological reference,
 provider, entry or sequence version. A known RefSeq accession suffix may identify
 that accession's namespace-defined version without resolving the table's unknown
@@ -217,7 +225,7 @@ UTF-8/character boundaries and an end offset covering the whole values buffer.
 It uses upstream Arrow metadata definitions and keeps the same allocation/file
 limits before handing the complete bytes to the standard Polars reader.
 
-The public initial-slice record version 1 remains readable. New export records
+The public initial-slice record version 1 remains readable. New CSV export records
 use version 2 and include `reopen_verification`, which is null for a CSV-opened
 dataset. Existing native `Utf8View` pairs can be reopened by this version and
 re-exported as `LargeUtf8`. Earlier development readers supporting
@@ -274,7 +282,7 @@ catalog, daemon database, automatic restart recovery or background job.
   fields are null), but rejects trailing whitespace. Boolean `true`/`false` are
   case-insensitive. Exact int64 values never pass through float64. Reopening
   is limited to the paired native IPC exports described above. No arbitrary IPC
-  import, TSV, Parquet, FASTA, arbitrary code, SQL, joins or aggregate operations
+  import, TSV, Parquet, general FASTA import, arbitrary code, SQL, joins or aggregate operations
   in this slice
 - One typed predicate (`eq`, `gt`, `ge`, `lt`, `le`, `is_null`), optional single-key
   stable sort and column projection. Null predicate outcomes do not select rows;

@@ -75,7 +75,10 @@ struct Provenance {
     source_sha256: String,
     input_consistency: String,
     operations: Vec<Operation>,
-    csv_schema_policy: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    csv_schema_policy: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    sequence_origin: Option<crate::fasta_windows::SequenceOrigin>,
     declared_schema: BTreeMap<String, ColumnType>,
 }
 #[derive(Deserialize, Serialize)]
@@ -223,7 +226,7 @@ fn validate_verification(value: &ReopenVerification) -> Result<()> {
     if !digest_valid(&value.record_sha256)
         || !digest_valid(&value.artifact_sha256)
         || value.artifact_bytes > MAX_IPC_BYTES
-        || !matches!(value.record_version, 1 | 2)
+        || !matches!(value.record_version, 1..=3)
         || value.checks != CHECKS
         || value.input_consistency != CONSISTENCY
         || value.original_provenance != CLAIMS
@@ -234,7 +237,7 @@ fn validate_verification(value: &ReopenVerification) -> Result<()> {
     Ok(())
 }
 fn validate_record(record: &ExportRecord) -> Result<()> {
-    if !matches!(record.record_version, 1 | 2) || record.format != "arrow_ipc" {
+    if !matches!(record.record_version, 1..=3) || record.format != "arrow_ipc" {
         return Err(err("unsupported export record version or format"));
     }
     if record.record_version == 1 && record.reopen_verification.is_some() {
@@ -284,14 +287,27 @@ fn validate_record(record: &ExportRecord) -> Result<()> {
     }
     let source = &record.provenance;
     relative_path(&source.source)?;
-    if source.source_bytes > MAX_INPUT_BYTES
-        || !digest_valid(&source.source_sha256)
-        || source.input_consistency != CONSISTENCY
-        || source.csv_schema_policy != "strings_unless_explicitly_typed"
+    if !digest_valid(&source.source_sha256)
         || source.operations.len() > 32
         || source.declared_schema.len() > MAX_COLUMNS
     {
         return Err(err("invalid recorded source provenance"));
+    }
+    match &source.sequence_origin {
+        None if record.record_version != 3
+            && source.source_bytes <= MAX_INPUT_BYTES
+            && source.input_consistency == CONSISTENCY
+            && source.csv_schema_policy.as_deref() == Some("strings_unless_explicitly_typed") => {}
+        Some(origin)
+            if record.record_version == 3
+                && source.csv_schema_policy.is_none()
+                && source.declared_schema.is_empty()
+                && source.input_consistency
+                    == "verified_native_and_prepared_before_and_after_indexed_read" =>
+        {
+            origin.validate()?
+        }
+        _ => return Err(err("invalid recorded source provenance")),
     }
     for name in source.declared_schema.keys() {
         column_name(name)?;
@@ -836,6 +852,117 @@ mod adversarial_tests {
         let start =
             block.offset as usize + block.meta_data_length as usize + buffer.offset() as usize;
         start..start + buffer.length() as usize
+    }
+
+    fn sequence_record(mut record: Value) -> Value {
+        // Fault-injection record fixture: claims are explicitly unverified on
+        // reopen, so no native source is required for this schema test.
+        record["record_version"] = json!(3);
+        record["provenance"]["source_bytes"] = json!(MAX_INPUT_BYTES + 1);
+        record["provenance"]["input_consistency"] =
+            json!("verified_native_and_prepared_before_and_after_indexed_read");
+        record["provenance"]
+            .as_object_mut()
+            .unwrap()
+            .remove("csv_schema_policy");
+        record["provenance"]["declared_schema"] = json!({});
+        record["provenance"]["sequence_origin"] = json!({
+            "format":"fasta", "reference":"refseq.gcf:GCF_000005845.2", "snapshot_id":format!("sha256-{}", "a".repeat(64)),
+            "recipe_id":format!("sha256-{}", "b".repeat(64)), "fai_sha256":"c".repeat(64), "dictionary_sha256":"d".repeat(64),
+            "sequence_id":"001:chr-a", "sequence_length":100, "window_size":10,
+            "coordinates":"0-based-half-open;source-sequence-relative", "units":"length/counts:bases;gc-fractions:dimensionless",
+            "canonical_gc_policy":"(G+C)/(A+C+G+T);ascii-case-insensitive;ambiguity-excluded;zero-denominator-null",
+            "weighted_gc_policy":"biov-core-iupac-dna-gc;all-bases-denominator;N=1/2;B,V=2/3;D,H=1/3",
+            "algorithm":"nonoverlapping-fasta-gc-windows", "algorithm_revision":1
+        });
+        record
+    }
+
+    #[test]
+    fn sequence_record_v3_rejects_malformed_origin_and_wrong_version_without_handles() {
+        let (dir, exported, _) = fixture();
+        let valid = sequence_record(exported["record"].clone());
+        let parsed: ExportRecord = serde_json::from_value(valid.clone()).unwrap();
+        validate_record(&parsed).unwrap();
+        let mut mutations = Vec::new();
+        for (key, value) in [
+            ("format", json!("csv")),
+            ("window_size", json!(0)),
+            ("window_size", json!(1_048_577)),
+            ("sequence_length", json!(0)),
+            ("sequence_id", json!("chr with space")),
+            ("reference", json!("uniprot:P12345")),
+            ("reference", json!("refseq.gcf:GCF_000005845")),
+            ("coordinates", json!("1-based-closed")),
+            ("canonical_gc_policy", json!("unknown")),
+            ("weighted_gc_policy", json!("unknown")),
+            ("algorithm_revision", json!(2)),
+            ("fai_sha256", json!("broken")),
+            ("unknown_field", json!(true)),
+        ] {
+            let mut bad = valid.clone();
+            bad["provenance"]["sequence_origin"][key] = value;
+            mutations.push(bad);
+        }
+        let mut old = valid.clone();
+        old["record_version"] = json!(2);
+        mutations.push(old);
+        let mut csv = valid.clone();
+        csv["provenance"]["csv_schema_policy"] = json!("strings_unless_explicitly_typed");
+        mutations.push(csv);
+        let mut missing = valid;
+        missing["provenance"]
+            .as_object_mut()
+            .unwrap()
+            .remove("sequence_origin");
+        mutations.push(missing);
+        let filename = Path::new(exported["record_path"].as_str().unwrap())
+            .file_name()
+            .unwrap()
+            .to_str()
+            .unwrap();
+        let mut store = DatasetStore::new(dir.path(), dir.path()).unwrap();
+        for bad in mutations {
+            fs::write(
+                exported["record_path"].as_str().unwrap(),
+                serde_json::to_vec(&bad).unwrap(),
+            )
+            .unwrap();
+            assert!(store
+                .reopen(ReopenRequest {
+                    record_path: filename.into(),
+                    preview_rows: 1
+                })
+                .is_err());
+            assert!(store.datasets.is_empty());
+        }
+    }
+
+    #[test]
+    fn sequence_record_v3_row_budget_rejects_before_decode_without_handles() {
+        let (dir, exported, _) = fixture();
+        let mut record = sequence_record(exported["record"].clone());
+        record["row_count"] = json!(usize::MAX);
+        fs::write(
+            exported["record_path"].as_str().unwrap(),
+            serde_json::to_vec(&record).unwrap(),
+        )
+        .unwrap();
+        let filename = Path::new(exported["record_path"].as_str().unwrap())
+            .file_name()
+            .unwrap()
+            .to_str()
+            .unwrap();
+        let mut store = DatasetStore::new(dir.path(), dir.path()).unwrap();
+        let error = store
+            .reopen(ReopenRequest {
+                record_path: filename.into(),
+                preview_rows: 1,
+            })
+            .unwrap_err()
+            .to_string();
+        assert!(error.contains("allocation"), "{error}");
+        assert!(store.datasets.is_empty());
     }
 
     #[test]

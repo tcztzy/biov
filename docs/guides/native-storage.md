@@ -558,6 +558,11 @@ dependencies change, independently from output-integrity checks.
 
 The bounded [prepared RefSeq FASTA index](prepared-fasta.md) extension exercises
 this contract using conventional FAI files; its own guide records acceptance.
+The bounded [native sequence metric table](prepared-fasta.md#native-sequence-metric-tables)
+extension reads one exact prepared sequence with upstream indexed access and
+creates a typed GC-window dataset for the existing Polars query/export/reopen
+workflow. It does not rewrite or duplicate raw sequences, create missing
+preparations or expand the session retained-data charge.
 It does not expand native registration to other semantic providers.
 
 ## Future slices, kept separate

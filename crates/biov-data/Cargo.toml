@@ -6,6 +6,7 @@ rust-version.workspace = true
 license.workspace = true
 
 [dependencies]
+biov-prepared = { path = "../biov-prepared" }
 biov-identifiers = { path = "../biov-identifiers" }
 polars = { version = "=0.51.0", default-features = false, features = ["csv", "ipc"] }
 serde = { version = "=1.0.229", features = ["derive"] }
