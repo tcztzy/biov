@@ -6,8 +6,10 @@ rust-version.workspace = true
 license.workspace = true
 
 [dependencies]
+biov-core = { path = "../biov-core" }
 biov-identifiers = { path = "../biov-identifiers" }
 biov-storage = { path = "../biov-storage" }
+noodles-core = "=0.20.0"
 noodles-fasta = "=0.66.0"
 serde = { version = "=1.0.229", features = ["derive"] }
 serde_json = "=1.0.151"

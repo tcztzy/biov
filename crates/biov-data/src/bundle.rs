@@ -20,6 +20,7 @@ impl Companions {
         let manifest_name = format!("{artifact_id}.manifest.json");
         let readme_name = format!("{artifact_id}.README.md");
         let record_name = format!("{artifact_id}.json");
+        let sequence_origin = &record["provenance"]["sequence_origin"];
         let columns: Vec<Value> = frame
             .get_columns()
             .iter()
@@ -31,15 +32,20 @@ impl Companions {
                     DataType::Boolean => "boolean",
                     _ => return Err(err("unsupported portable column type")),
                 };
+                let semantics = if sequence_origin.is_object() {
+                    sequence_column(column.name().as_str())
+                } else {
+                    json!({})
+                };
                 Ok(json!({
                     "name": column.name().as_str(),
                     "logical_type": logical_type,
                     "polars_dtype": column.dtype().to_string(),
                     "nullable": true,
                     "null_count": column.null_count(),
-                    "description": null,
-                    "units": null,
-                    "coordinates": null
+                    "description": semantics["description"],
+                    "units": semantics["units"],
+                    "coordinates": semantics["coordinates"]
                 }))
             })
             .collect::<Result<_>>()?;
@@ -88,9 +94,9 @@ impl Companions {
             "biological_identifier": biological_identifier,
             "source": {
                 "historical_path": provenance["source"],
-                "path_interpretation": "relative_to_original_data_root_not_bundle",
+                "path_interpretation": if sequence_origin.is_object() { "relative_to_original_store_root_not_bundle" } else { "relative_to_original_data_root_not_bundle" },
                 "required_for_reading": false,
-                "format": "csv",
+                "format": if sequence_origin.is_object() { "fasta" } else { "csv" },
                 "sha256": provenance["source_sha256"],
                 "bytes": provenance["source_bytes"],
                 "input_consistency": provenance["input_consistency"]
@@ -99,6 +105,7 @@ impl Companions {
                 "operations": provenance["operations"],
                 "declared_schema": provenance["declared_schema"],
                 "csv_schema_policy": provenance["csv_schema_policy"],
+                "sequence_origin": sequence_origin,
                 "reopen_verification": record["reopen_verification"],
                 "historical_references_only": true
             },
@@ -122,7 +129,7 @@ impl Companions {
                 "original_provenance": "recorded_claims_not_independently_verified",
                 "companion_role": "Descriptive only; BioV reopen validates the mandatory record and Arrow file, not these companions",
                 "unknown_semantics": "Null column descriptions, units, coordinates and undeclared scientific metadata mean unknown; never infer biological semantics from column names. Namespace-specific version null meanings are explained in version_semantics",
-                "column_scope": "Column-level descriptions, units and coordinates are unknown; dataset-level caller declarations are not automatically assigned to individual columns",
+                "column_scope": if sequence_origin.is_object() { "Column meanings follow the recorded sequence_origin algorithm contract; origin claims are not independently authenticated" } else { "Column-level descriptions, units and coordinates are unknown; dataset-level caller declarations are not automatically assigned to individual columns" },
                 "nullable": "True means the exported type supports null values; null_count describes this result",
                 "historical_references": "Source paths, prior reopen record paths and parent_dataset_id values are historical provenance only, not bundle dependencies or reusable session capabilities",
                 "relocation": "Resolve files relative to this manifest; move all four same-directory files together; original source files and BioV are not required to analyze the Arrow data"
@@ -153,6 +160,13 @@ fn bounded(bytes: &[u8], limit: usize, label: &str) -> Result<()> {
 fn readme(manifest_name: &str, readme_name: &str, record: &Value) -> String {
     let arrow_name = record["file"].as_str().unwrap_or_default();
     let artifact_id = record["artifact_id"].as_str().unwrap_or_default();
+    let record_version = record["record_version"].as_u64().unwrap_or(2);
+    let sequence_notes = if record["provenance"]["sequence_origin"].is_object() {
+        let origin = &record["provenance"]["sequence_origin"];
+        format!("\nThis result is a generated FASTA sequence window table. The data dictionary records each known column meaning. `lineage.sequence_origin` records exact native reference, snapshot, prepared recipe and index hashes, selected sequence, length and window_size, plus algorithm and revision. Coordinates are 0-based half-open relative to that source sequence. Windows do not overlap; `is_full_window=false` explicitly marks a final short window. Counts and lengths use bases; fractions are dimensionless. Canonical GC policy: {}. Weighted GC policy: {}. No biological threshold or classification is applied. The initial MCP response reports the same-pass whole-sequence summary; it is not a new session dataset.\n", origin["canonical_gc_policy"].as_str().unwrap_or_default(), origin["weighted_gc_policy"].as_str().unwrap_or_default())
+    } else {
+        String::new()
+    };
     format!(
         r#"# Portable typed-table result
 
@@ -164,7 +178,7 @@ PyArrow installed (the independent acceptance test uses PyArrow 25.0.1).
 ## Keep these four files together
 
 - `{arrow_name}`: complete typed Arrow IPC file
-- `{artifact_id}.json`: mandatory strict reopen record, schema version 2
+- `{artifact_id}.json`: mandatory strict reopen record, schema version {record_version}
 - `{manifest_name}`: portable machine-readable manifest, schema version 1
 - `{readme_name}`: this guide
 
@@ -187,6 +201,7 @@ The `scientific_metadata` object preserves dataset-level caller declarations;
 it does not assign them to each column. Never infer a biological meaning,
 reference version, units, coordinate convention or sample identity from a name.
 Inspect nulls before comparisons. Null and an empty string are distinct.
+{sequence_notes}
 
 `biological_identifier` separates namespace, full and base accession and any
 explicit RefSeq GCF assembly revision. Identifier syntax is locally checked,
@@ -194,7 +209,7 @@ not resolved at the provider. UniProt entry and sequence versions are separate
 and unknown. `versions.reference_version` and `versions.provider_release` are
 unknown; free-text reference declarations are preserved without interpretation.
 
-`source` records the original CSV byte size and SHA-256; its path is explicitly
+`source` records the original input format, byte size and SHA-256; its path is explicitly
 historical and is not needed to read the exported result. `lineage.operations`
 records filters, stable sorts with nulls last, and projections in execution
 order. Its parent handles are historical session labels. A prior reopen check
@@ -298,6 +313,23 @@ strict record and Arrow pair remains independently reopenable. Keep roots
 trusted; canonical path checks do not defend against hostile concurrent writers.
 "#
     )
+}
+
+/// Known meanings exist only for this explicit generated sequence origin.
+fn sequence_column(name: &str) -> Value {
+    let (description, units, coordinates) = match name {
+        "sequence_id" => ("Exact selected first-token FASTA record identifier", None, None),
+        "start" => ("Inclusive window start in the selected source sequence", Some("bases"), Some("0-based-half-open;source-sequence-relative")),
+        "end" => ("Exclusive window end in the selected source sequence", Some("bases"), Some("0-based-half-open;source-sequence-relative")),
+        "length" => ("Number of source bases in this window; end minus start", Some("bases"), None),
+        "is_full_window" => ("True when window length equals requested window_size; final partial is false", None, None),
+        "canonical_base_count" => ("Case-insensitive A,C,G,T count; all ambiguity excluded", Some("bases"), None),
+        "gc_base_count" => ("Case-insensitive literal G,C count", Some("bases"), None),
+        "gc_fraction" => ("gc_base_count / canonical_base_count; null when denominator is zero", Some("dimensionless"), None),
+        "weighted_gc_fraction" => ("Existing biov-core IUPAC GC weighting divided by all window bases; see sequence_origin policy", Some("dimensionless"), None),
+        _ => return json!({}),
+    };
+    json!({"description": description, "units": units, "coordinates": coordinates})
 }
 
 #[cfg(test)]

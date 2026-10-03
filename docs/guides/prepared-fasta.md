@@ -140,6 +140,108 @@ Use the generated ordinary-reader example with an explicit external index path.
 For example, pysam's `FastaFile` accepts `filepath_index`; it need not create an
 index beside the immutable raw FASTA. This avoids changing provider-native files.
 
+## Native sequence metric tables
+
+The `dataset_fasta_windows` native MCP tool reads one exact sequence from an
+already existing, verified preparation. Start the same native server with
+`--data-root DIR --output-root DIR --store-root DIR`. It requires all three
+preparation selectors plus the exact `recipe_id`, exact opaque `sequence_id`
+and a positive `window_size` in bases. `preview_rows` defaults to 5 and is at
+most 50. No sequence or recipe is guessed, and a missing preparation is an error;
+call `prepared_fasta` explicitly first. This tool does not download, normalize or
+write source/prepared files.
+
+```json
+{
+  "reference": "refseq.gcf:GCF_000005845.2",
+  "snapshot_id": "sha256-<complete source snapshot digest>",
+  "source_path": "ncbi_dataset/data/GCF_000005845.2/GCF_000005845.2_ASM584v2_genomic.fna",
+  "recipe_id": "sha256-<exact preparation recipe digest>",
+  "sequence_id": "NC_000913.3",
+  "window_size": 10000,
+  "preview_rows": 5
+}
+```
+
+Use the exact identities returned by registration and preparation, not the
+placeholders. Sequence identifiers are case-sensitive first-header tokens;
+leading zeroes, punctuation and descriptions are not rewritten. Windows are
+non-overlapping and ordered from the beginning of the selected sequence. They
+use source-sequence-relative zero-based half-open `[start,end)` coordinates.
+The final row is short when length is not divisible by window size; it is retained.
+
+The table has these ordered columns:
+
+| Column | Type | Meaning |
+| --- | --- | --- |
+| `sequence_id` | string | Exact selected FASTA name token |
+| `start` | int64 | Inclusive zero-based start, in bases |
+| `end` | int64 | Exclusive end, in bases |
+| `length` | int64 | Bases in this window, `end-start` |
+| `is_full_window` | boolean | Whether `length == window_size` |
+| `canonical_base_count` | int64 | Case-insensitive A/C/G/T count |
+| `gc_base_count` | int64 | Case-insensitive literal G/C count |
+| `gc_fraction` | float64, nullable | G/C count divided by canonical count |
+| `weighted_gc_fraction` | float64 | Existing IUPAC-weighted GC divided by all bases |
+
+Canonical GC excludes every ambiguous symbol from both numerator and denominator.
+An all-ambiguous window has `gc_fraction: null`, rather than zero. Weighted GC
+uses the existing Rust sequence-core policy: each IUPAC symbol represents an
+equal-weight base set, so N contributes 1/2, B/V 2/3, D/H 1/3, S 1 and W 0.
+Every symbol counts in the weighted denominator. Both fractions are dimensionless;
+case does not change either metric. For example, `NNNN` has canonical counts zero,
+canonical GC null and weighted GC 0.5.
+
+The response is the ordinary bounded dataset summary with an opaque session
+`dataset_id`, typed schema, row count and preview, plus `sequence_summary`.
+That summary contains `sequence_id`, whole `length`, `canonical_base_count`,
+`gc_base_count`, nullable `gc_fraction` and `weighted_gc_fraction`, accumulated
+in the same pass over all selected bases. Fractions are derived from whole counts,
+not averages of window percentages. This whole-sequence summary is a response;
+the persisted result is the complete window table and its lineage.
+
+Upstream noodles indexed queries retain at most one requested window of sequence
+bases, capped at 1 MiB. The implementation verifies the exact native and prepared
+bundle before and after reading. Table row/cell/identifier memory is conservatively
+preflighted against the remaining 64 MiB session retained-data charge before
+allocating vectors or Polars columns. The normal 16-dataset session limit still
+applies. This is neither a process-wide peak-memory guarantee nor unbounded,
+lazy/disk-backed sequence analytics. Deep integrity verification may scan complete
+source files even though indexed extraction retains bounded windows.
+
+Reuse the returned handle with `dataset_query`, `dataset_export` and
+`dataset_release`. Complete exports use the same four-file Arrow IPC bundle as
+[other native datasets](rust-datasets.md#use-a-result-without-biov), with standard
+LargeUtf8 strings and known metric column meanings/units/coordinates. Their
+`provenance.sequence_origin` records the exact reference/snapshot/recipe, selected
+sequence and length, window size, FAI/dictionary SHA-256 values, coordinate and
+GC policies, algorithm name and revision. Native FASTA byte size/SHA-256 remain
+separate source-content identities. FASTA origins do not claim a CSV schema
+policy. Their mandatory strict export record is version 3; CSV exports remain
+version 2, and prior record versions 1/2 remain supported by paired reopening. Query operations append lineage without dropping sequence origin.
+
+The four-file Arrow export is self-contained for analysis of the saved windows;
+it does not need the native/prepared dependency closure. That closure remains
+necessary for independently recomputing metrics from raw sequence. A new native
+process can `dataset_reopen` the mandatory record/Arrow pair without the store,
+restoring a fresh session handle and preserving origin/operation records. Reopen
+checks saved consistency, not source availability, producer authenticity or
+independent scientific provenance. Unknown species/provider releases remain
+unknown.
+
+The installed acceptance gate is `tests/test_fasta_metrics_portability.py`.
+It exercises tiny LF/CRLF mixed-case/IUPAC fixtures, exact names, whole summaries,
+complete query/export/new-process reopen, recipe/width/sequence errors, missing
+preparations and preflight rejection without consuming handle slots. It moves
+full and filtered exports, removes the original source/store/output locations,
+and checks full rows, hashes, schema, filtering and sums with stock
+`pyarrow==25.0.1` in a separate environment without BioV and with kernel network
+calls denied. `BIOV_STANDALONE_PYTHON` selects that reader. The opt-in existing
+real E. coli package additionally expects 465 windows at 10,000 bases: 464 full
+windows and a final 1,652-base row, totaling 4,641,652 bases and 2,357,528 literal
+G/C bases. All four installed Linux acceptance cases pass (SPEC T73). This validates the
+stated input/platform scope, not a general large-genome analytics claim.
+
 ## Validation and remaining scope
 
 Executed source-built Linux acceptance covers 25 prepared-library tests, all

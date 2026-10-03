@@ -245,7 +245,8 @@ async fn tools_have_typed_schemas_and_sdk_protocol_errors() {
             "dataset_release",
             "storage_register",
             "storage_resolve",
-            "prepared_fasta"
+            "prepared_fasta",
+            "dataset_fasta_windows"
         ])
     );
     let prepared = tools
@@ -262,6 +263,28 @@ async fn tools_have_typed_schemas_and_sdk_protocol_errors() {
         required,
         BTreeSet::from(["reference", "snapshot_id", "source_path"])
     );
+    let metrics = tools
+        .iter()
+        .find(|tool| tool["name"] == "dataset_fasta_windows")
+        .unwrap();
+    let required: BTreeSet<_> = metrics["inputSchema"]["required"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|v| v.as_str().unwrap())
+        .collect();
+    assert_eq!(
+        required,
+        BTreeSet::from([
+            "reference",
+            "snapshot_id",
+            "source_path",
+            "recipe_id",
+            "sequence_id",
+            "window_size"
+        ])
+    );
+    assert_eq!(metrics["annotations"]["readOnlyHint"], true);
     assert_eq!(prepared["annotations"]["readOnlyHint"], false);
     assert_eq!(prepared["annotations"]["destructiveHint"], false);
     for tool in tools {
@@ -311,6 +334,15 @@ async fn tools_have_typed_schemas_and_sdk_protocol_errors() {
         (
             "prepared_fasta",
             json!({"reference":"refseq.gcf:GCF_000005845.2","snapshot_id":"sha256-anything","source_path":"genome.fna","unexpected":true}),
+        ),
+        ("dataset_fasta_windows", json!({})),
+        (
+            "dataset_fasta_windows",
+            json!({"reference":"refseq.gcf:GCF_000005845.2","snapshot_id":"sha256-anything","source_path":"genome.fna","recipe_id":"sha256-anything","sequence_id":"chr", "window_size":-1}),
+        ),
+        (
+            "dataset_fasta_windows",
+            json!({"reference":"refseq.gcf:GCF_000005845.2","snapshot_id":"sha256-anything","source_path":"genome.fna","recipe_id":"sha256-anything","sequence_id":"chr", "window_size":1,"unexpected":true}),
         ),
         ("no_such_tool", json!({})),
     ] {
