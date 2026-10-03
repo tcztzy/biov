@@ -1,8 +1,10 @@
 # SPEC
 
-§I and §V describe current interfaces and contracts. §D describes the accepted
-design; §T tracks its implementation and validation. Supported scope is stated
-explicitly rather than inferred from the broader design.
+§I and §V describe current interfaces and contracts, including the existing
+Python surface. §D describes the accepted design; §T tracks its implementation
+and validation. New Rust analytical interfaces in D12 are in progress until their
+acceptance evidence is recorded. Supported scope is stated explicitly rather than
+inferred from the broader design.
 
 ## §G GOAL
 Make BioV a biology-focused tool manager, especially for the workflows served by
@@ -15,14 +17,19 @@ software rather than replace them.
 Keep biological meaning alongside this lifecycle: explicit inputs and outputs,
 reference versions, coordinates, units and scientific checks make tools useful
 together. Preserve complete data with bounded previews and reusable results.
-Provide biological data access, interval/sequence APIs and execution through
-Python, CLI and MCP where useful, without requiring an agent or model. Skills
+Make biological identifiers a first-class entry point into reusable data, with
+namespace, accession and version kept explicit. The target puts BioV's main logic
+in Rust, with Rust-side Polars exposed through MCP as the primary analytical
+interface. Use
+Arrow IPC for table interoperability with Python and other consumers instead of
+building a parallel Python analysis API. CLI and optional Python bindings expose
+capabilities where useful, without requiring an agent or model. Skills
 guide method selection and interpretation; repeatable handling and checks belong
 in code. Task-specific orchestration and biological interpretation remain with
 the agent or workflow using BioV.
 
 ## §C CONSTRAINTS
-- Target: BioV-owned main logic in Rust; thin Python interface (D9–D11); active development permits explicit breaking API changes. Python `>=3.12` describes the current package, not a permanent Rust-core constraint
+- Target: BioV-owned main logic in Rust; Rust-side Polars/MCP analytics with Arrow IPC interoperability and optional thin Python bindings (D9–D12); no requirement for a parallel Python analysis API or legacy compatibility layers. Active development permits explicit breaking API changes. Python `>=3.12` describes the current package, not a permanent Rust-core constraint
 - RuRanges-only and Biopython-only backend restrictions are superseded by contract-gated Rust migration; library choice does not change public scientific semantics
 - interval semantics ≠ sequence semantics; ⊥ new DataFrame subclass or large framework
 - ⊥ PyRanges objects, conversion paths, compatibility aliases, or legacy interval dependencies
@@ -31,7 +38,7 @@ the agent or workflow using BioV.
 - identifiers.org resolution access ! fixed to `https://resolver.api.identifiers.org`; MCP transport = stdio
 - Identifier-backed MCP schemes = file namespaces declared by the artifact manifest + generic `identifiers`
 - Provider-data integration scales by identifier namespace × artifact kind; reuse native APIs and commands, with format conversion and input/output checks where needed; ⊥ per-function MCP wrappers; replacement of BioV-owned algorithms requires D10 validation, not a rewrite of external scientific tools
-- generated analysis ! use ordinary ecosystem APIs; complete script executes in selected local|LSF environment so concrete storage paths never cross executor boundary
+- caller-generated analysis ! use ordinary ecosystem APIs; complete script executes in selected local|LSF environment so concrete storage paths never cross executor boundary; this existing script route does not define the Rust analytical interface
 - RefSeq assembly path resolution ! official `datasets download genome accession` CLI with `--include gff3,rna,cds,protein,genome,seq-report`; extracted data package structure ! preserved verbatim
 - RefSeq MCP metadata ! official `datasets summary genome accession` JSON stdout; ⊥ artifact path resolution, package download/extraction or cache write
 - UniProt path resolution ! official full-entry `.json` and protein `.fasta` cached independently; explicit `alphafold_cif` selects exactly one official predicted model; no implicit structure selection
@@ -40,12 +47,15 @@ the agent or workflow using BioV.
 
 D1: Users select data and an analysis, then inspect or reuse its results. The
 MCP server provides analysis execution and result access using shared
-core logic (currently Python; target Rust); the client need not supply a terminal tool. Routine analysis
+core logic. Existing managed script analysis is Python-based; Rust-side
+Polars/MCP is the primary analytical direction (D9, D12), with Arrow IPC for
+interoperability. The client need not supply a terminal tool. Routine analysis
 does not require users to choose package managers, cache paths or URI schemes.
 Deployment configuration remains operator-owned; routine tool lifecycle is a
 BioV product responsibility (D6–D8). Analysis execution remains distinct from
 deployment management; this design does not require new MCP management tools.
-V64 describes the current MCP surface.
+V64 describes the current deployment boundary. The existing Python MCP route and
+the in-progress Rust stdio route have separately stated supported scopes.
 
 D2: Each supported analysis declares its inputs, outputs and the metadata needed
 to use them correctly. These requirements are inspectable by the caller and
@@ -122,7 +132,7 @@ depends on verifying unchanged bytes, rather than universally for every format.
 Distinguish unavailable information from fields that do not apply; the executor
 does not invent scientific metadata or infer QC success from an exit code.
 
-D5: Start with one representative two-step analysis in a configured environment,
+D5: The first managed-script slice uses one representative two-step analysis in a configured environment,
 reusing the existing Pixi manifests, locks, execution code and mature format
 readers. This first locked Pixi analysis records the selected environment,
 manifest and lock digests, actual execution-host Pixi and BioV versions, full
@@ -140,7 +150,10 @@ switching. T51 fixes concrete MCP tool/result fields, input requirements, refere
 context, each output's summary, input stability, retention and retrieval limits,
 and interruption behavior in acceptance cases before T52 implementation. Reuse
 existing API and format definitions where sufficient; a separate declaration
-format, reference encoding or record layout is not prescribed.
+format, reference encoding or record layout is not prescribed. T51–T53 record
+this implemented Python/Pixi slice; they do not require subsequent Rust table
+operations to execute Python or provision a Pixi environment. D12 defines the
+next bounded analytical slice.
 
 D6: Own tool environments across tasks, not just the command that creates them.
 Offer durable installation for repeated use and on-demand execution without a
@@ -187,52 +200,86 @@ platform coverage, automatic backend switching and distributed environment
 management until needed. The focused acceptance cases are in the
 [software guide](docs/guides/environments.md#planned-tool-lifecycle).
 
-D9: Put BioV-owned main logic in a shared Rust core, with a thin Python
-interface. This is an explicit architecture choice for AI-assisted engineering:
-use compiler-checked types, ownership and explicit error boundaries to catch
-more implementation mistakes before execution. These are reasons for the
-choice, not proof of scientific correctness or faster AI development. D6–D8
-borrow uv's tool-lifecycle model; Rust is not selected merely because uv uses
-it. The core owns interval/sequence computation, parsing and validation,
-identifiers, provider/cache handling, configuration, tool lifecycle/execution
-and analysis records/results. Caller scripts and external scientific tools
-retain their own languages; BioV need not reimplement BWA, samtools, models or
-package solvers.
+D9: Put BioV-owned main logic in Rust. This is an explicit architecture choice
+for AI-assisted engineering: use compiler-checked types, ownership and explicit
+error boundaries to catch more implementation mistakes before execution. These
+are reasons for the choice, not proof of scientific correctness or faster AI
+development. D6–D8 borrow uv's tool-lifecycle model; Rust is not selected merely
+because uv uses it. Caller scripts and external scientific tools retain their own
+languages; BioV need not reimplement BWA, samtools, models or package solvers.
 
-Use a small Cargo workspace: the core library, a PyO3 binding and a Rust
-binary. Python exposes ergonomic imports, typed calls, errors and necessary
-ecosystem integration. Existing Python usage guides the design but does not
-freeze names, signatures, return types or pandas/Biopython inheritance. This
-actively developed package permits documented breaking updates. Do not retain a
-second algorithm implementation or add compatibility layers solely to preserve
-an old API. Initially, Typer and the Python MCP SDK may be thin transport
-shells over the Rust core; move CLI dispatch to the Rust binary after testing
-the chosen argv/help/exit/output contract. Existing entry-point names can
-change with explicit migration guidance. Route `biov mcp` through that same
-binary when its stdio adapter passes protocol/client acceptance; until then it
-may launch the packaged Python MCP shell explicitly. Python-free CLI/MCP is a
-later verified milestone, not a property of the first extension wheel. No new
-per-operation RPC layer or universal backend abstraction is required.
+Treat identifiers as a distinctive, first-class capability, not strings hidden
+inside fetching or analysis. An offline identifier layer owns namespace,
+accession and namespace-defined version parsing, validation and canonical
+representation; never split or discard accession suffixes by a global heuristic.
+Do not infer biological identity or versions from a session dataset handle,
+column name or arbitrary filename. Syntax validation is distinct from resolving
+an identifier to a provider record or verifying that data exists. Keep existing
+namespace allowlists, reserved-character handling and version-selection contracts
+unless a migration explicitly revises them with acceptance evidence.
 
-Polars is the preferred candidate for Rust-side columnar operations and may
-also be the new public dataframe surface. Do not emulate pandas indexes,
-extension dtypes or subclass behavior just for compatibility. Explicitly select
-the new sequence representation, column schema, null handling, row-order rules
-and Python return types before implementation; document how old examples
-change. Conversion must preserve scientifically relevant metadata, duplicates
-and values, or reject unsupported inputs explicitly rather than stringify/drop
-them. Rust-Bio, noodles and Rust interval kernels are candidates, not assumed
-drop-in replacements. Choose after checking behavior, license, maintenance,
-platform/build cost and end-to-end performance including FFI/conversion; no
-zero-copy claim by default. See the [migration
-guide](docs/guides/rust-migration.md) for the current interface map and the
-choices still to validate.
+Use logical boundaries with directed dependencies:
 
-D10: Migrate by public contract, not by a blanket rule to keep old dependencies
-or a single wholesale rewrite. First inventory current outputs, schemas, Python
-types, warnings/errors and CLI/MCP behavior, then specify the retained or
-intentionally revised contract for each migrated slice in offline fixtures. Pin
-the reference implementation/version and record reference assemblies,
+- **identifiers**: offline namespace/accession/version types, parsing and
+  validation; no provider requests, cache writes or tool execution
+- **formats**: native readers/writers, schema and coordinate conversion; preserve
+  native meaning, lossless representations and explicit unsupported-format errors
+- **bio computation**: sequence/interval algorithms and scientific checks, using
+  independently verified definitions; no transport or package-manager ownership
+- **data**: provider resolution and fetching, biological datasets, provenance and
+  available scientific metadata; compose identifiers, formats and cache services
+- **cache**: locations, atomic storage and content/ownership/retention mechanics;
+  provider selection and scientific interpretation remain outside this boundary
+- **tools**: existing manager backends, environment lifecycle and literal native
+  execution, with the D6–D8 ownership and failure rules
+- **optional Python**: small bindings or ecosystem adapters when justified;
+  no independent analytical implementation or mandatory compatibility facade
+- **CLI/MCP**: thin command/protocol adapters over Rust operations; no duplicated
+  scientific, identifier, provider or lifecycle rules
+
+These are responsibility boundaries, not an instruction to create one crate per
+bullet. Use modules or crates according to actual dependencies and substantial
+responsibilities; there is no fixed tiny crate budget and no requirement to
+create empty crates in advance. The initial core/PyO3 workspace is a starting
+point, not a permanent architectural limit.
+
+Rust-side Polars is the chosen primary engine for columnar analysis through MCP.
+Operations consume complete datasets, return reusable dataset references and
+provide schema, row counts when known, and bounded previews. Arrow IPC is the
+interoperability boundary for complete typed tables, including consumers using
+Python Polars, PyArrow or another Arrow reader. Do not build a second full Python
+analysis API or require Python to call the Rust MCP implementation. The existing
+tiny PyO3 sequence binding may remain useful without expanding into a parallel
+analysis surface. Do not emulate pandas indexes, extension dtypes or subclass
+behavior solely for compatibility.
+
+Select schemas, sequence representation, null/NaN handling, supported operators
+and row-order rules explicitly for each slice. Conversion must preserve values,
+duplicates and scientifically relevant metadata, or reject unsupported inputs;
+never silently stringify or drop them. Arrow IPC alone does not establish
+reference versions, coordinates, units or sample identity. Retain known metadata
+in a documented record or representation and mark unavailable metadata as unknown.
+Rust-Bio, noodles and Rust interval kernels remain candidates, not assumed
+drop-in replacements. Check behavior, license, maintenance, platform/build cost
+and end-to-end performance; neither Arrow nor Rust implies zero-copy or a speedup.
+
+Existing Python usage informs scientific requirements without freezing names,
+signatures or return types. Explicit breaking updates are acceptable. Keep the
+legacy Python `biov mcp` route separate while the new `biov-rs mcp --data-root
+DIR --output-root DIR` route is implemented and validated with the official Rust
+MCP SDK (`rmcp`) over stdio. Do not silently reroute the existing entry point or
+claim full Python-server feature parity, Python-free BioV distribution, or
+client acceptance from a successful compile. No new per-operation RPC framework
+or universal backend abstraction is required. See the [migration
+guide](docs/guides/rust-migration.md) for actual interfaces and validation scope.
+
+D10: Migrate by scientific and operational contract, not by a blanket rule to
+keep old dependencies or a single wholesale rewrite. Inventory relevant current
+outputs, schemas, metadata, warnings/errors and CLI/MCP behavior, including Python
+types only where that slice still exposes them. Specify the retained or
+intentionally revised contract in offline fixtures; a new Rust/MCP slice need
+not first reproduce every legacy Python API. Pin the reference
+implementation/version and record reference assemblies,
 coordinates, units, genetic codes and numerical tolerances. Preserve the
 scientific meaning in V1–V13 (including coordinates, weighted GC and protein
 units), identifier/version handling, original provider bytes, executor
@@ -249,34 +296,234 @@ mathematics, source/provenance for constants and tables, independent oracle
 cases, adversarial and property tests and review before it replaces the
 reference. AI-generated code has exactly the same gate. Rust memory safety and
 compilation do not validate biology. Biopython-backed `Seq`/`SeqRecord` return
-types may be replaced outright with a documented Python-facing representation;
-no compatibility shim is required. Remove the dependency when no remaining BioV
-function needs it. Scientific Python dependencies in caller-owned analysis
+types may be replaced outright with a documented Rust/MCP representation and
+Arrow IPC interchange where appropriate; no Python mirror or compatibility shim
+is required. Remove the dependency when no remaining BioV function needs it. Scientific Python dependencies in caller-owned analysis
 environments need not disappear when BioV's core moves to Rust.
 
-D11: Ship the extension through PyO3/maturin with the Python package, chosen
-entry points, resources and type information. Python 3.12–3.14 is the current
-acceptance matrix; declare and test any revised minimum before release;
-declare/pin the Rust toolchain/MSRV, features and Cargo lock when
-implementation starts. Test a Rust unit-test target independent of Python and
-installed-wheel Python/CLI/MCP contracts. Evaluate stable ABI only against
-actual binding/dependency needs; do not assume abi3 covers every Python
-runtime, free-threaded build or OS/CPU. Initial native release targets are
-Linux x86_64 and macOS ARM64; each requires actual wheel install/import/runtime
-tests, with a stated Linux libc baseline and macOS deployment target. Other
-platforms remain unclaimed until their native distributions are validated.
-Existing users outside that set need a documented source-build route before the
-native release. Prebuilt-wheel users need no Rust compiler; source/sdist
-builders need the stated Rust/linker/system prerequisites. Include all Rust
-sources, Cargo metadata/lock, Python wrappers, assets/licenses, tests and docs
-in a self-contained sdist, and build/test from the unpacked sdist. Standalone
-CLI archives are separate artifacts, with checksums and their own
-target/dependency tests; wheels are not universally portable binaries. Keep
-scientific environment platform support separate from BioV package support. Do
-not advertise Rust speedups without reproducible release-build,
-representative-data measurements of conversion, memory and runtime.
+D11: Validate and distribute the Rust binary independently of optional Python
+bindings. Pin the Rust toolchain/MSRV, selected dependency features and Cargo
+lockfile; test Rust operations without Python. The native CLI/MCP release gate
+includes argv/help/exit/output contracts, clean stdio, protocol initialization,
+tool discovery, structured results and errors, and complete-data reuse/export
+through a real MCP client. The official `rmcp` SDK supplies protocol machinery;
+a custom JSON-RPC implementation is not the product. A tested narrow native
+analytical server does not establish parity with the existing provider,
+identifier or managed-Python-analysis server.
+
+The existing PyO3/maturin package remains available for its implemented bindings.
+Where bindings are shipped, test installed-wheel imports and selected Python/CLI
+contracts; Python 3.12–3.14 is the current acceptance matrix, not a dependency of
+the standalone Rust analytical server. Declare and test any revised Python
+minimum before release. Evaluate stable ABI against actual binding/dependency
+needs; do not assume abi3 covers every runtime, free-threaded build or OS/CPU.
+Do not expand the binding solely to keep an old Python analysis API intact.
+
+Initial native release targets are Linux x86_64 and macOS ARM64. Each binary or
+wheel requires actual install/runtime tests for its target, with a stated Linux
+libc baseline and macOS deployment target. Other platforms remain unclaimed
+until validated. Existing users outside that set need a documented source-build
+route before the native release. Supported prebuilt-artifact users need no Rust
+compiler; source/sdist builders need the stated Rust/linker/system prerequisites.
+For Python installations, check retained dependencies' wheel availability as well
+as BioV's before claiming compiler-free installation.
+
+Include all required Rust sources, Cargo metadata/lock, Python wrappers,
+assets/licenses, tests and docs in a self-contained Python sdist, and build/test
+from the unpacked sdist. Standalone CLI archives are separate artifacts, with
+checksums and their own target/dependency tests; wheels are not universally
+portable binaries. Keep scientific environment platform support separate from
+BioV package support. Do not advertise Rust speedups without reproducible
+release-build, representative-data measurements of conversion, memory and runtime.
+
+D12: The implemented first analytical slice is a local Rust/Polars dataset workflow over
+`biov-rs mcp --data-root DIR --output-root DIR`, using the official `rmcp` stdio
+server. The bounded scope below is validated on Linux x86_64 through real stdio
+subprocess tests, including an installed binary outside the checkout (T63–T65).
+Desktop-client integration and portable prebuilt releases remain unclaimed. The tool
+surface is `dataset_open`, `dataset_preview`, `dataset_query`, `dataset_export`,
+`dataset_read_artifact` and `dataset_release`. It opens local UTF-8 CSV files
+with a header, provides schema, exact materialized row count and bounded previews,
+creates derived datasets from complete-data operations, and exports Arrow IPC.
+No TSV, Parquet, Arrow IPC input, aggregation, arbitrary SQL or code execution is
+claimed in this slice. This is a data-handling foundation, not biological
+normalization, sequence/interval parity or completed tool lifecycle management.
+
+Opening reads one bounded in-memory byte snapshot and computes the input SHA-256
+from those same bytes before parsing. `dataset_open` accepts an optional `schema`
+map from existing column names to `string`, `int64`, `float64` or `boolean`.
+Unspecified columns remain strings: never infer numeric types and lose leading
+zeros in identifiers or the exact spelling/precision of numeric-looking text.
+Numeric and Boolean operations require an explicit column declaration. Invalid
+values for the declared type and non-finite Float64 values fail explicitly;
+preserve such source text as strings or clean it in an explicit separate step.
+Preserve nulls rather than converting them into empty strings or NaN.
+
+Before allocating Polars columns, the CSV preflight validates UTF-8, header names,
+column count, duplicate headers, declared-schema names, every row's field count
+and a conservative per-cell allocation bound. Reject ragged rows rather than
+padding or truncating them. One query applies an optional typed filter (`eq`,
+`gt`, `ge`, `lt`, `le` or `is_null`), then one optional stable sort with nulls
+last, then optional column selection. Boolean filters support only `eq` and `is_null`; other comparisons
+require values of the selected column's supported type. Unknown/duplicate
+selected columns and unsupported operators fail explicitly. No implicit row
+limit is applied to query results. Declare any revision of these rules before
+claiming it as supported.
+
+Dataset handles identify immutable logical inputs/results within one server
+session. They are neither biological identifiers nor durable saved-result
+references; unknown, released or expired handles fail explicitly. Original and
+derived handles remain separate, and filtering never operates on preview rows.
+The first offline Rust identifier subset validates explicit RefSeq GCF and
+UniProt references, with bare GCF as the only inference route. It is not a port
+of the whole identifiers.org registry or prompt scanner and does not resolve
+providers. Namespace-specific versions remain explicit; a UniProt accession
+alone does not establish its entry or sequence version.
+
+Caller-declared metadata fields are `identifier`, `species`, `reference`,
+`coordinates` and `units`. Missing values are null/unknown, and supplied values
+are declared rather than provider-verified. A supplied identifier receives local
+syntax validation, not evidence of record existence or content identity. Do not
+infer scientific context or sample identity from CSV content, propagate metadata
+as if provider-verified, or report unperformed biological checks as passed.
+
+The concrete initial resource limits are:
+
+- CSV input: 16 MiB; one to 64 columns, each name one to 128 UTF-8 bytes
+- Session datasets: at most 16 handles and a 64 MiB retained-data charge, summing
+  each Polars estimated size plus 17 bytes per cell to cover omitted string-view
+  buffers and validity overhead conservatively. CSV preflight also checks this
+  per-cell charge before Polars allocation. This is not a peak-memory ceiling
+- Preview: zero to 50 rows, default five; 24 KiB serialized-row budget and
+  256-byte text-cell limit, with omitted rows and truncated cells explicit
+- Derivation: at most 32 recorded steps and 8 KiB serialized provenance on open and query;
+  metadata values at most 256 bytes each
+- Exports: at most 64 registered artifacts per session; UUID-generated filenames
+  and create-new publication, never a caller-controlled arbitrary destination
+- Explicit artifact reads: one to 48 KiB raw bytes per call, base64-encoded with
+  offsets, total size, SHA-256 and end-of-file status
+
+Preview rows alone do not bound a whole response. The adapter additionally caps
+serialized tool results at 95 KiB, text at 16 KiB and errors at 2 KiB; tests
+verify normal JSON-RPC envelopes below 96 KiB, including maximum-size artifact
+chunks. Recorded parameter values are constrained by the provenance cap. A failed operation must not
+be registered or reported as a completed result. Complete files left after a
+later record-publication failure may remain for diagnosis, without a success
+claim or implicit retry.
+
+Roots must already exist, have UTF-8 paths and be trusted, operator-owned
+directories. Input paths are data-root-relative; reject absolute paths, traversal
+and symlink escapes. Generated exports remain under the configured output root
+and do not mutate
+source files or overwrite earlier exports. Canonical path checks establish the
+supported boundary, not a secure sandbox against hostile concurrent local
+filesystem writers. Do not offer arbitrary input URLs or caller-supplied export
+paths through this surface.
+
+Each export saves the complete Arrow IPC file and an adjacent JSON record with
+schema, row count, source snapshot identity, transformation provenance, declared
+metadata, software information, output byte count and SHA-256. Files persist
+independently of the server session and are not automatically deleted on dataset
+release or shutdown. Dataset and artifact handles both expire with the session;
+restart recovery/cataloguing is not implemented by persistent files alone.
+`dataset_release` frees only a dataset handle and leaves saved exports intact.
+
+An execution-host path is not proof that a remote MCP client has the file.
+`dataset_read_artifact` provides explicit bounded transfer during the originating
+session, verifying the saved bytes against their export identity before returning
+a chunk. Validate full client-side reconstruction and independent Arrow readback,
+including rows omitted from previews. Broader provider ingestion, durable
+catalogues, restart-time retrieval, scientific metadata inference, lifecycle
+additions and retirement of the Python route require separate contracts and
+validation.
+
+### D12 acceptance cases (in progress)
+
+```gherkin
+Feature: Complete local datasets through Rust MCP and Arrow IPC
+  Background:
+    Given biov-rs is running as an rmcp stdio server
+    And a data root and a separate output root are configured
+
+  Scenario: Filter complete data and independently read back its Arrow export
+    Given a CSV with columns record_id and score contains these ordered rows
+      | record_id | score |
+      | first     | 1     |
+      | second    | 2     |
+      | retained  | 9     |
+      | retained  | 9     |
+      | last      | 7     |
+    When I open the CSV with score declared int64 and request two preview rows
+    Then the schema and total row count of five are reported
+    And the preview contains only first and second with omissions declared
+    When I filter the dataset for score greater than 5
+    And sort score descending then select record_id and score
+    Then a separate derived dataset has three rows
+    And the original dataset still has five rows
+    When I export the derived dataset to Arrow IPC under the output root
+    And retrieve every bounded artifact chunk through MCP
+    And reconstruct the complete file and verify its declared SHA-256
+    And read that file with an independent Arrow-compatible reader
+    Then all three rows appear in the requested order
+    And both duplicate retained rows are preserved
+    And the complete score column is 9, 9 and 7
+    And the selected column names, types and values match the complete result
+    And a persistent JSON record identifies the source snapshot and operations
+    When I release the dataset handle
+    Then the handle is unusable and the exported files remain intact
+
+  Scenario: Preserve identifier spelling and numeric-looking text by default
+    Given a CSV row has record_id 001 and measurement 9007199254740993.0010
+    When I open it without declaring column types
+    Then both columns have string type
+    And both values retain their complete original spelling
+    When I export and independently read back the complete Arrow IPC file
+    Then the values are still 001 and 9007199254740993.0010 as strings
+    And numeric comparison requires an explicitly declared numeric column
+
+  Scenario: Do not invent biological identity or metadata
+    Given a local CSV with no declared biological metadata
+    When I open it and derive a filtered dataset
+    Then its dataset handles are session references rather than biological IDs
+    And reference assembly, coordinates, units and sample identity remain unknown
+    And no biological validation is reported as passed
+    When I use an unknown or expired dataset handle
+    Then I receive a clear tool error and no substitute dataset
+
+  Scenario Outline: Reject limits and unsafe paths without publishing success
+    Given a request that <violation>
+    When I call the relevant dataset operation
+    Then I receive a bounded explicit tool error
+    And no result is registered or reported as completed by the failed operation
+    And existing inputs and completed results remain unchanged
+
+    Examples:
+      | violation                                      |
+      | exceeds the documented input-byte limit        |
+      | exceeds the documented retained-dataset limit  |
+      | requests a preview beyond the documented limit |
+      | has duplicate CSV headers                      |
+      | has a ragged CSV row                            |
+      | declares a schema for an unknown CSV column     |
+      | has an invalid value for its declared type      |
+      | contains a non-finite declared float64 value     |
+      | exceeds the conservative cell-allocation limit  |
+      | exceeds the 8 KiB provenance limit         |
+      | selects an unknown column                      |
+      | uses an unsupported filter operation           |
+      | opens a path outside the data root             |
+      | opens a symlink escaping the data root         |
+      | supplies an arbitrary export path              |
+      | exceeds the registered-artifact limit          |
+      | requests more than 48 KiB in one artifact read  |
+      | reads an artifact modified since export        |
+```
 
 ## §I INTERFACES
+The following entries describe the existing Python interfaces unless marked
+otherwise. The independent Rust MCP dataset route is specified in D12 and tracked
+in T63–T65; the native dataset guide records its verified scope.
+
 - api: `BioDataFrame.overlap(other, how, seqid_col, start_col, end_col, strand_col)` → selected self rows
 - api: `BioDataFrame.intersect(other, seqid_col, start_col, end_col, strand_col)` → clipped self rows per overlap pair
 - api: `BioDataFrame.subtract_ranges(other, seqid_col, start_col, end_col, strand_col)` → residual self fragments
@@ -375,13 +622,13 @@ V10: ordinary string Series `.seq` → `AttributeError`; caller ! choose/carry `
 V11: sequence storage uppercases valid strings, preserves `pd.NA`, accepts empty strings & declared IUPAC alphabets, rejects non-string/invalid symbols with `SequenceValidationError`
 V12: DNA/RNA reverse complement preserves dtype/nulls; weighted GC handles IUPAC & empty string; translation requires complete codons, honors `table,to_stop`, preserves nulls, returns `biov.protein`
 V13: protein mass/pI/composition use non-empty canonical 20 amino acids; extended IUPAC, stop, or empty sequence stored but analysis → stable `SequenceValidationError`; null results remain null; composition columns = canonical amino-acid order & values = percentages
-V14: current implementation confines RuRanges calls to the interval module and Biopython sequence algorithms to the sequence module; D9–D10 supersede backend exclusivity for the target implementation, which centralizes migrated rules in Rust under the retained or explicitly revised contracts
+V14: the existing Python implementation confines RuRanges calls to the interval module and remaining Biopython sequence algorithms to the sequence module; migrated normalization/reverse complement/length/weighted GC use the Rust sequence core; D9–D10 supersede backend exclusivity for the target implementation, which centralizes migrated rules in Rust under the retained or explicitly revised contracts
 V15: preserve existing behavior except explicitly revised contracts; artifact access uses standard exceptions without BioV-specific error subclasses
 V16: prompt parser recognizes explicit Compact Identifiers, identifiers.org URLs, BioV resource URIs & allowlisted bare IDs; canonicalizes variants, preserves first occurrence order, deduplicates, accepts provider/slash accessions & trims prose punctuation
 V17: parser emits links only for resolver-valid IDs; invalid candidates omitted; upstream/service/JSON failures surface distinctly ≠ invalid ID
 V18: `identifiers://registry:id` round-trips reserved accession characters & returns native resolver JSON; `identifiers://registry` losslessly reconstructs the native namespace object; invalid registry/accession → stable resource error
 V19: identifiers.org integration is read-only/idempotent, accesses only the fixed resolver, registry-dataset and identifiers.org origins, has bounded prompt candidates & request timeout
-V20: `biov mcp` starts stdio without protocol-corrupting stdout; `biov-mcp` ∉ installed scripts; expected provider errors are translated once to SDK errors so clients receive their messages
+V20: the existing Python `biov mcp` starts stdio without protocol-corrupting stdout; `biov-mcp` ∉ installed scripts; expected provider errors are translated once to SDK errors so clients receive their messages
 V21: asset preserves complete official response in native nested shape; namespace resources, institutions & locations remain upstream-owned objects
 V22: MCP publishes a data template for each manifest namespace, the two `identifiers` forms; no API catalog or old `identifiers://resolve/*` resource
 V23: data template metadata exposes prefix, accession regex, sample & namespace ID; every ID read validates the asset regex; `namespaceEmbeddedInLui` reconstructs resolver input correctly
@@ -409,13 +656,13 @@ V45: `entry_json` and `protein_fasta` cache independently; requesting one never 
 V46: registry asset bytes = upstream response body; ⊥ wrapper, flattening, foreign keys or derived fields; runtime indexes native records in memory without mutating them
 V47: `refseq.gcf://<accession>` executes only `datasets summary genome accession <accession>`; validates one matching report then returns stdout unchanged; ⊥ `path`, package download/extraction or `$BIOV_HOME` write; `path(refseq.gcf)` remains V31–V35
 V48: each registered `refseq.gcf` artifact kind maps to exactly one official catalog `fileType`; the catalog selects exactly one existing member per request; missing/duplicate members → ValueError; native parser and I/O errors propagate; one cached package serves every kind
-V49: BioV publishes no API catalog assets, catalog resources, or generic query dispatcher; search and scientific API queries use task skills and upstream OpenAPI/GraphQL documentation, never pickle schemas
+V49: provider integration publishes no API catalog assets, catalog resources, or generic upstream query dispatcher; search and scientific API queries use task skills and upstream OpenAPI/GraphQL documentation, never pickle schemas
 V50: file namespaces validate accessions with the packaged identifiers.org regex before provider I/O; syntax validity does not imply file availability
 V51: file operations are explicit manifest representations or bounded provider lookups; callers cannot supply arbitrary HTTP endpoints through the artifact API
 V52: PubMed uses the current PMC version and checks its PMID, version, PDF object, and published MD5; no available PDF → failure, never an abstract or scraped-page substitute
 V53: ClinVar downloads complete matching VCV XML; dbSNP downloads matching complete RefSNP JSON; GEO defaults to `expression_matrix`, requiring exactly one nonempty matching GSE Series matrix and rejecting missing or multiple matches; native full SOFT is available only when explicitly selected
 V54: a native file format does not imply completed biological normalization or analysis; multiple GEO matrices, ENCODE experiments, and multiple AlphaFold models require explicit caller decisions
-V55: MCP file descriptions return URI, default kind, and representations without file download or cache I/O; RefSeq/UniProt retain V47/V45 metadata behavior; actual files are accessed through Python or fsspec
+V55: existing Python MCP file descriptions return URI, default kind, and representations without file download or cache I/O; RefSeq/UniProt retain V47/V45 metadata behavior; actual files are accessed through Python or fsspec
 V56: the versioned artifact manifest owns namespaces, kinds, defaults, and NCBI selection fields; discovery validates dispatch structure without network/cache access; caller mutations cannot change dispatch; installed fsspec schemes match manifest namespaces
 V57: individual downloads stage and validate before atomic publication; valid local cache reads skip downloading; format, identifier, HTTP, and network failures do not become successful error-text results or fallback files
 V58: fsspec discovers every manifest namespace without prior `import biov`; reads and `info` reuse `path` validation/download/cache; handles support seek and ranged reads, `open_local` returns the actual filename; writes fail before provider I/O, errors propagate, and directory listing remains unsupported
@@ -436,7 +683,7 @@ V73: BioV owns the migrated deterministic crisprprimer and Azimuth implementatio
 
 V74: paired-read alignment uses run_software for BWA indexing and alignment, keeps local reference/FASTQ/SAM/BAM paths on the same host, retains caller-specified alignment and sort arguments, and propagates failed commands before consuming their outputs; fixture checks execute actual BAM sorting/indexing without claiming a live BWA run
 
-V75: Rust migration defines and tests its chosen Python/CLI/MCP contracts; breaking API/type changes are explicit and need no legacy shim; complete scientific outputs, metadata and data integrity remain validated independently of interface compatibility
+V75: Rust migration defines and tests its selected CLI/MCP and any optional Python contracts; Rust-side Polars/MCP is the primary analytical direction and Arrow IPC provides table interoperability; breaking API/type changes are explicit and need no Python mirror or legacy shim; complete scientific outputs, metadata and data integrity remain validated independently of interface compatibility
 V76: native release support is claimed only for tested distribution targets; no compiler is required for supported prebuilt wheels, while source builds declare their toolchain requirements
 
 ## §T TASKS
@@ -500,6 +747,15 @@ T55|x|migrate shared GEEPilot BWA-to-BAM execution into a public BioV API, remov
 T56|planned|fix the first local tool-lifecycle command surface and acceptance fixtures against D6–D8; distinguish currently supported behavior from missing inventory/update/removal/cleanup capabilities before implementation|D6,D7,D8
 T57|planned|implement and validate the bounded lifecycle slice after T56, reusing existing manifests, locks and managers; preserve biological and current execution contracts|D2,D3,D4,D6,D7,D8
 
+T58|partial|sequence normalization/reverse-complement public types, errors, breaking Unicode correction and full-output independent fixtures fixed in docs/guides/sequence-contract.md; inventory remaining scientific and operational contracts per slice, without requiring a full parallel Python analysis API|D9,D10,V75
+T59|partial|core/PyO3/development binary workspace, native normalization/reverse complement and maturin packaging implemented; installed Linux wheels and unpacked source builds validated; portable Linux/macOS release-target validation pending|D9,D10,D11,V10,V11,V12,V67,V75,V76
+T60|partial|native validated sequence lengths and weighted IUPAC GC implemented with independent base-set fixtures; move remaining sequence algorithms, interval operations and format parsing to Rust in contract-sized slices; use Rust-side Polars for analytical tables, evaluate scientific library candidates, measure interoperability costs, document schemas and metadata handling and independently verify any owned algorithms|D9,D10,D12,V1,V2,V3,V4,V5,V6,V7,V8,V12,V13,V75
+T61|partial|curated offline GCF/UniProt identifiers and local dataset provenance are implemented; move remaining offline identifier parsing/validation, provider resolution/data provenance, cache, configuration, tool lifecycle/execution and managed results into their Rust responsibility boundaries; instantiate crates only when actual responsibilities justify them; retain external tool/native lock ownership and all failure/receipt/result contracts; implement T56–T57 lifecycle scope there|D2,D3,D4,D6,D7,D8,D9,D10,V75
+T62|partial|the local native dataset MCP slice and source-installed binary are validated; expand native CLI/MCP scope after selected operation and real-client acceptance; keep legacy Python and native Rust routes explicit until any switch is independently justified; publish validated binaries and optional wheels/source builds, retiring superseded Python logic/dependencies when no retained function needs them|D9,D10,D11,D12,V20,V64,V67,V75,V76
+T63|x|fix the first local Rust/Polars MCP dataset contract, string-safe defaults and explicit schemas, supported operations, handle lifetime, path boundaries and resource limits; distinguish unknown biological metadata and session handles from identifiers; record complete-data/export/chunk-retrieval/readback acceptance and the curated offline identifier subset|D2,D3,D4,D9,D10,D12,V75
+T64|x|implement official rmcp stdio behind biov-rs mcp with configured data/output roots, local CSV open/schema/row count/bounded preview, complete-data filter/sort/select into derived datasets, Arrow IPC plus record export, explicit bounded retrieval and dataset release; keep the existing Python MCP route separate|D9,D11,D12,V20,V75
+T65|x|validate the new native workflow through an MCP client and independent Arrow IPC readback, including records beyond previews, identifier/numeric-text fidelity, explicit numeric schemas, duplicates/nulls/order, digest-verified chunk reconstruction, unknown metadata, handle expiry, errors/limits/path confinement and clean stdio; update the actual supported scope only after checks pass|D2,D3,D4,D10,D11,D12,V75,V76
+
 ## §B BUGS
 id|date|cause|fix
 B1|2026-08-30|mixed-form acceptance prompt contained Compact ID fallback, masking absent URI/bare parsing|V28
@@ -511,9 +767,3 @@ B6|2026-09-03|RefSeq MCP metadata read reused `genome_fasta` path resolution & d
 B7|2026-10-01|T47 removed command aliases without moving differing executable and prepared-source entry points to native tasks; run --executable also bypassed tasks|V62,V68
 B8|2026-10-01|T49 moved differing entry points to native tasks but missed `lumpy`, whose environment name matched a different real binary, so exec ran the low-level caller without failing|V68
 B9|2026-10-01|exec diagnosed a 127 exit through Pixi introspection that aborted on error, so a failed diagnosis replaced the entry's own status instead of preserving it|V68
-
-T58|partial|sequence normalization/reverse-complement public types, errors, breaking Unicode correction and full-output independent fixtures fixed in docs/guides/sequence-contract.md; remaining dataframe/sequence and Python/CLI/MCP inventory pending|D9,D10,V75
-T59|partial|core/PyO3/development binary workspace, native normalization/reverse complement and maturin packaging implemented; installed Linux wheels and unpacked source builds validated; portable Linux/macOS release-target validation pending|D9,D10,D11,V10,V11,V12,V67,V75,V76
-T60|partial|native validated sequence lengths and weighted IUPAC GC implemented with independent base-set fixtures; move remaining sequence algorithms, interval operations and format parsing to Rust in contract-sized slices; evaluate Polars and Rust library candidates, measure conversion costs, document new types and metadata handling and independently verify any owned algorithms|D9,D10,V1,V2,V3,V4,V5,V6,V7,V8,V12,V13,V75
-T61|planned|move identifiers, providers/cache, configuration, lifecycle/execution and managed analysis into the shared Rust core; retain external tool/native lock ownership and all failure/receipt/result contracts; implement T56–T57 lifecycle scope there|D2,D3,D4,D6,D7,D8,D9,D10,V75
-T62|planned|switch CLI dispatch and then MCP transport to Rust after chosen shell/protocol/client contract acceptance; publish validated native wheels/binaries and source builds, retire superseded Python logic/dependencies once no retained function needs them|D9,D10,D11,V20,V64,V67,V75,V76

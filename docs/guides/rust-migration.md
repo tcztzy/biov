@@ -1,10 +1,12 @@
-# Rust core and Python interface
+# Rust core, MCP and optional Python
 
 Native sequence slices are implemented: normalization, IUPAC reverse complement,
 validated sequence lengths and weighted GC fractions run in a shared Rust core
 with thin PyO3 batch bindings. See the [sequence
 contract](sequence-contract.md) for types, errors and independent scientific
-fixtures. The rest of the rewrite remains planned; pandas, Biopython and
+fixtures. A separate [Rust dataset MCP slice](rust-datasets.md) now opens local
+CSV with string-safe schemas, executes full-data Polars queries and exports Arrow
+IPC through official rmcp stdio, without Python. The rest of the rewrite remains planned; pandas, Biopython and
 RuRanges' Rust-backed interval kernels still support unmigrated features.
 
 Rust is a deliberate choice for AI-assisted engineering: compiler-checked types,
@@ -57,37 +59,39 @@ These are actual source entry points, not promises to preserve every type:
 
 ## Implementation shape
 
-Use one Rust core, a PyO3 binding and a Rust binary in a small Cargo workspace.
-The core owns biological operations, file/identifier handling, configuration,
-cache and lifecycle state, execution and result records. Python only adapts calls,
-objects, errors and necessary ecosystem hooks. Batch operations cross the binding
-boundary once per batch rather than calling Python for each row.
+Use responsibility boundaries for offline identifiers, formats, biological
+computation, provider/data/provenance, cache mechanics, tool lifecycle/execution,
+optional Python and CLI/MCP. There is no fixed small-crate budget and no reason
+to create empty crates. The current workspace adds `biov-identifiers`,
+`biov-data` and `biov-cli` to the existing `biov-core`/`biov-python` sequence slice.
+Transport adapters call standalone Rust library APIs.
 
-Polars is the preferred dataframe candidate and may become the public Python
-surface. Select concrete column schemas, sequence representation and null/order
-rules first. Polars has no pandas-style index and distinguishes NaN from null;
-conversion is not behavior-preserving by default. Unsupported object columns must
-be explicitly represented or rejected. Do not silently coerce them to strings.
-Benchmark complete Python-to-Rust-to-Python calls as well as the Rust operation.
-See the [official pandas migration guide](https://docs.pola.rs/user-guide/migration/pandas/).
+Rust-side Polars is the primary analytical engine through MCP. The dataset API
+preserves identifier text by default and requires explicit numeric schemas.
+Arrow IPC files provide complete typed-table interoperability with Python
+Polars/PyArrow and other Arrow consumers, without a parallel Python analysis API
+or custom cross-process FFI. The existing small PyO3 sequence interface remains
+useful without becoming a mandatory facade for new analysis features.
 
-Move computation before transport. The existing Python CLI and MCP SDK can call
-the Rust core during migration. Then move CLI dispatch to the Rust binary, and
-move MCP to a native stdio implementation only after protocol and real-client
-tests pass. A Rust binary may explicitly launch the packaged Python MCP shell
-in the interim; do not call that distribution Python-free. Python analysis scripts
-and external scientific programs continue to run in their selected environments.
+The new `biov-rs mcp --data-root DIR --output-root DIR` is independently tested
+through the official Rust MCP SDK. The existing Python `biov mcp` retains its
+separate identifier/provider/managed-analysis surface; the native slice does not
+claim parity or silently replace it. Python analysis scripts and external
+scientific programs continue to run in their selected environments. See the
+[native dataset guide](rust-datasets.md) for current limits and installation.
 
 ## Library decisions to validate
 
-These are engineering recommendations, not already selected or benchmarked pins:
+Polars 0.51.0 and rmcp 0.6.0 are pinned and tested for the local-table slice.
+Other entries below remain candidates or retained binding infrastructure; none
+is a performance claim:
 
 - [PyO3](https://pyo3.rs/) and [maturin](https://www.maturin.rs/): native Python
   extension and mixed-package distribution; test binding lifetimes, exception
   translation and cancellation, and release the interpreter only for safe
   Rust-only work
 - [Official Rust MCP SDK](https://github.com/modelcontextprotocol/rust-sdk):
-  candidate for the native stdio adapter; validate tool/resource schemas,
+  used by the native dataset stdio adapter; validate tool/resource schemas,
   negotiation, errors and client behavior rather than implement a custom protocol
 - [Polars](https://docs.pola.rs/): columnar computation, with explicit selection of
   features and evaluation of compile time, wheel size, memory and conversion cost
@@ -168,9 +172,11 @@ target tests and checksums. See [maturin distribution](https://www.maturin.rs/di
 
 ## Source builds and native validation
 
-The Cargo workspace contains `biov-core` (library and development `biov-core`
-binary) and `biov-python` (PyO3 extension). Rust 1.89.0 is both the pinned
-build toolchain and declared MSRV. PyO3 is pinned to 0.26.0; the committed Cargo
+The Cargo workspace contains five members. The sequence pair is `biov-core`
+(library and development `biov-core` binary) and `biov-python` (PyO3 extension).
+The native dataset path adds `biov-identifiers` (offline biological identifiers),
+`biov-data` (Polars datasets and provenance) and `biov-cli` (the `biov-rs` MCP
+binary). Rust 1.89.0 is both the pinned build toolchain and declared MSRV. PyO3 is pinned to 0.26.0; the committed Cargo
 lockfile controls its transitive dependencies. Maturin 1.15.0 is the pinned PEP 517 build
 backend. The Python 3.12 stable ABI is selected for this small string/list-only
 boundary; no NumPy ABI or interpreter objects cross detached Rust computation.

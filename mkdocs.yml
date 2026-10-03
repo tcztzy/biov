@@ -50,6 +50,7 @@ nav:
   - Configuration: guides/configuration.md
   - Scientific environments: guides/environments.md
   - Plugins: guides/plugins.md
+  - Rust dataset MCP: guides/rust-datasets.md
   - Rust migration: guides/rust-migration.md
   - Native sequence contract: guides/sequence-contract.md
 - API Reference: reference/

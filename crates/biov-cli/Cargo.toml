@@ -1,0 +1,25 @@
+[package]
+name = "biov-cli"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+description = "Native BioV command-line and MCP adapters"
+
+[[bin]]
+name = "biov-rs"
+path = "src/main.rs"
+
+[dependencies]
+biov-data = { path = "../biov-data" }
+# rmcp 0.6.4 macros emit newer Tool fields absent in rmcp 0.6.0.
+rmcp-macros = "=0.6.0"
+rmcp = { version = "=0.6.0", default-features = false, features = ["base64", "macros", "server", "transport-io"] }
+serde_json = "1"
+tokio = { version = "1", features = ["macros", "rt"] }
+
+[dev-dependencies]
+base64 = "=0.22.1"
+polars = { version = "=0.51.0", default-features = false, features = ["ipc"] }
+sha2 = "=0.10.9"
+tokio = { version = "1", features = ["io-util", "process", "time"] }

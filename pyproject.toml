@@ -61,6 +61,9 @@ requires = ["maturin==1.15.0"]
 build-backend = "maturin"
 
 [tool.maturin]
+# Preserve the complete workspace: cargo-based sdist generation prunes unrelated
+# native CLI members while leaving a lockfile for the full workspace.
+sdist-generator = "git"
 manifest-path = "crates/biov-python/Cargo.toml"
 python-source = "src"
 module-name = "biov._native"
@@ -80,7 +83,7 @@ include = [
     { path = "AGENTS.md", format = "sdist" },
     { path = "mkdocs.yml", format = "sdist" },
 ]
-exclude = ["**/__pycache__/**", "**/*.pyc", "docs/**/.pixi/**", "tests/test_plugin_distribution.py"]
+exclude = ["**/__pycache__/**", "**/*.pyc", "docs/**/.pixi/**", "tests/test_plugin_distribution.py", ".agents/**", ".claude-plugin/**", ".codex-plugin/**", ".github/**", ".gitignore", ".mcp.json", ".pre-commit-config.yaml", "skills/**"]
 
 [dependency-groups]
 dev = [
