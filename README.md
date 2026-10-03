@@ -1,233 +1,179 @@
-BioV
-====
-![Python Version from PEP 621 TOML](https://img.shields.io/python/required-version-toml?tomlFilePath=https%3A%2F%2Fraw.githubusercontent.com%2Ftcztzy%2Fbiov%2Fmain%2Fpyproject.toml)
-![PyPI - Downloads](https://img.shields.io/pypi/dd/biov)
+# BioV
 
-BioV aims to be a biology-focused tool manager: install or run a tool, reuse its
-environment across tasks, and know where it lives and how to maintain it. Its
-direction follows `uv tool` and `uvx`, while retaining the biological input/output
-contracts needed to use scientific tools correctly together.
+Biological tools, data and reproducible execution, available from Python, the
+command line and MCP.
 
-Today BioV provides locked scientific environments and on-demand execution,
-identifier-backed data, interval/sequence APIs and local managed analysis with
-saved results. A complete tool lifecycle, including unified inventory, upgrades,
-uninstall and cleanup, is [planned](docs/guides/environments.md#planned-tool-lifecycle).
-These capabilities work without an agent; task-specific orchestration, method
-selection and biological interpretation belong to the caller or its skills.
+BioV's goal is a biology-focused tool manager: install or run a tool, reuse its
+environment across tasks, and know which version ran and where its results live.
+The model is `uv tool` and `uvx`, with biological contracts for reference versions,
+coordinates, units and complete data.
 
-## Highlights
+## What works today
 
-- **Agent-facing interfaces**: MCP tools for identifier discovery, provider records and local managed analysis, with bounded previews and access to complete saved results
-- **Pydantic-powered**: Built-in validation and serialization for robust data handling
-- **Pandas ecosystem**: Developer-friendly DataFrame operations with extended bioinformatics capabilities
-- **RuRanges interval kernel**: Stable `BioDataFrame` range semantics over NumPy/Rust kernels
-- **Typed sequences**: Explicit nullable DNA, RNA, and protein Series with a `.seq` API
-- **Persistent identifiers**: Resolve identifiers.org Compact Identifiers through MCP resources and prompt parsing
-- **Portable analysis**: Resolve persistent IDs as executor-local `PathLike` artifacts, then use ordinary Biopython or command-line tools
-- **Modern tooling**: Full type hints support and configuration through environment variables
+- Run scientific programs through declared, locked Pixi environments or explicit
+  on-demand package sources
+- Resolve biological identifiers to native provider files and reusable local
+  artifacts, with Python and fsspec access
+- Work with genomic intervals and explicitly typed DNA, RNA and protein sequences
+- Run local managed Python analyses, retain complete outputs and records, and
+  inspect bounded previews through Python, CLI or MCP
+- Use the migrated `crisprprimer`, `crisprprimer-docker`, `biov-azimuth` and
+  paired-read alignment interfaces
 
-## Deterministic CRISPR computation
+A unified installed-tool inventory, upgrades, uninstall and safe cache cleanup
+are [planned](docs/guides/environments.md#planned-tool-lifecycle). They are not
+implied by the current execution commands. In particular, `biov update` refreshes
+the identifier registry, not installed tools.
 
-BioV distributes the existing `crisprprimer` Python package and CLI previously
-owned by GEEPilot, together with `crisprprimer-docker` and `biov-azimuth`. These
-provide repeatable computation and native report parsing. GEEPilot task skills
-retain question selection, safety routing, method choice and interpretation.
-The migration preserves existing score formulas and presets; it does not establish
-their biological validity. See the [computation guide](docs/guides/crispr-computation.md)
-for interfaces, environments and verification limits.
+BioV works without an agent or model. The caller chooses the scientific question,
+method and interpretation; BioV handles repeatable data and execution rules.
 
-## Coordinate system
-> [!IMPORTANT]
-> BioDataFrame interval APIs use BED-like, 0-based, end-exclusive `[start, end)` coordinates. Downloaded provider files retain their native coordinate conventions.
+## Install and run
 
-The interval convention matches Python slicing, with length `end - start`.
-Use the format's parser to convert coordinates before applying interval APIs;
-reading or downloading a raw file does not itself normalize its coordinates.
-
-## Requirements and interval engine
-
-BioV requires Python 3.12 or newer. Genomic interval methods on `BioDataFrame` use BioV-owned pandas/NumPy adaptation around RuRanges' Rust kernels. PyRanges objects and conversion helpers are not part of the API.
-
-Range operations group by chromosome and, when present on both operands, exact `+`/`-` strand. They preserve input order and duplicate rows. See the [genomic range contract](docs/guides/ranges.md) for overlap, intersection, subtraction, nearest-direction, empty-input, and coordinate details.
-
-## Typed sequence Series
-
-Importing BioV registers three explicit pandas extension dtypes. Ordinary string Series are never guessed to be biological sequences.
-
-```python
-import pandas as pd
-import biov
-
-dna = pd.Series(["ACGT", None], dtype="biov.dna")
-dna.seq.reverse_complement()
-dna.seq.gc_fraction()
-
-protein = pd.Series(["ACDE"], dtype="biov.protein")
-protein.seq.molecular_weight()
-```
-
-DNA/RNA reverse complement, weighted GC, and translation plus protein molecular weight, isoelectric point, and amino-acid composition use Biopython. See the [typed sequence contract](docs/guides/sequences.md) for alphabets, missing values, and error behavior.
-
-## Identifiers.org MCP server
-
-`biov mcp` exposes provider data through
-`refseq.gcf://GCF_000001030.2`, `uniprot://P42212`,
-`pubmed://22140103`, `clinvar://65533`, `dbsnp://rs121909098`, and
-`geo://GSE1000`. Registry metadata and
-resolver responses use `identifiers://<registry>` and
-`identifiers://<registry>:<id>`. The `parse_identifiers` tool recognizes
-Compact Identifiers, identifiers.org URLs, these resource URIs, and explicitly
-allowlisted unambiguous bare IDs such as `GCF_000001030.2`. The
-`resolve_identifiers` tool embeds the same resource content for MCP clients
-that cannot call `resources/read`. Refresh the raw registry response with
-`biov update`. See the
-[identifiers.org MCP guide](docs/guides/identifiers.md) for exact resource
-contents, host configuration, and error behavior.
-
-The file namespaces and available representations are described by
-`biov.artifact_capabilities()` and the [file provider guide](docs/guides/artifacts.md).
-MCP resources for these providers return JSON describing how to open their files;
-RefSeq and UniProt retain their native metadata resources. Actual data is read
-through `biov.path`, `biov.open`, or fsspec inside the analysis environment.
-
-Database searches and biological analysis belong to the task
-[skills](skills/) and their upstream libraries or services. BioV no longer
-publishes API catalogs or a generic `query_database` tool. The
-[biological-data skill](skills/biological-data/SKILL.md) directs explicit queries
-to official API documentation. See the [file provider guide](docs/guides/artifacts.md)
-for supported file formats and limitations.
-
-## Identifier-backed analysis
-
-Keep persistent IDs in generated code and resolve them to paths inside the selected
-execution environment. BioV owns the data boundary; established libraries own
-the computation:
-
-```python
-import biov
-from Bio import SeqIO
-
-records = SeqIO.parse(biov.path("GCF_000006945.2"), "fasta")
-```
-
-BioV registers every namespace in its artifact capability manifest with fsspec:
-
-```python
-import fsspec
-
-with fsspec.open("uniprot://P42212", "rt") as sequence_file:
-    fasta_text = sequence_file.read()
-```
-
-These reads reuse `biov.path` downloads and cache files. Existing readers work
-with the same URIs: `biov.read_fasta("uniprot://P42212")` still returns sequence
-records, while `biov.read_gff3(uri, storage_options={"artifact": "annotation_gff3"})`
-returns a `BioDataFrame` for a RefSeq URI.
-
-The `refseq.gcf × genome_fasta` provider invokes the official NCBI
-`datasets download genome accession` command and preserves the complete
-extracted package. UniProt JSON and FASTA representations are fetched from
-their official `/uniprotkb/<accession>.json|.fasta` endpoints and cached
-independently without rewriting them. The artifact kind defaults from the namespace, so
-`biov.path("uniprot://P42212")` returns `P42212.fasta`; request `entry_json`
-for the complete metadata and database cross-references. Cache fills are atomic
-and valid cache hits skip the corresponding downloader. Install the
-[NCBI Datasets CLI](https://www.ncbi.nlm.nih.gov/datasets/docs/v2/command-line-tools/download-and-install/)
-on execution hosts that resolve RefSeq genome paths.
-
-Run the complete ordinary Python script locally with `biov run analysis.py`, or
-submit the same script with `biov run --executor lsf analysis.py`. LSF returns a
-job-ID submission receipt, not a false completion result. See the
-[identifier-backed analysis guide](docs/guides/artifacts.md) for Biopython code,
-cache behavior, and HPC deployment requirements.
-
-## Agent plugins
-
-This repository also provides a `biov` plugin marketplace for Codex and Claude
-Code. Both hosts share the same task skills, reference files and MCP server.
-The `scientific-software` skill explains how to use configured Pixi environments
-and invoke scientific software; skills and references are loaded on demand.
-See the [plugin installation guide](docs/guides/plugins.md) for runtime
-prerequisites, local/GitHub installation and validation. Plugin installation is
-separate from installing the Python package and scientific software.
-
-## Environments
-
-Development uses `pyproject.toml`, `uv.lock` and
-[uv](https://docs.astral.sh/uv/getting-started/installation/):
+The current package requires Python 3.12 or newer. From this checkout:
 
 ```sh
 uv sync --locked
+uv run biov --help
+```
+
+For Python use, import `biov` in that environment. To install the CLI from the
+checkout into an isolated tool environment:
+
+```sh
+uv tool install .
+biov --help
+```
+
+Set up the pinned Pixi manager and a declared scientific environment, then run
+its native entry point:
+
+```sh
+biov setup
+biov setup samtools
+biov exec samtools --version
+```
+
+Declared environments install from their locks and can also be prepared on demand
+by `biov exec`. Bundled scientific environments currently target Linux x86_64;
+Pixi manager support on another platform does not establish support for every
+scientific tool. BioV's wheel does not contain Pixi or the scientific packages.
+See [scientific environments](docs/guides/environments.md) for platform support,
+project manifests, offline manager archives and prerequisites.
+
+`biov exec [SOURCE:]NAME ARGS...` supports `conda:`, `pypi:` and `npm:` sources.
+A bare name selects a declared Pixi environment if present, otherwise a temporary
+Pixi environment. PyPI and npm use `uv tool run` and `npx --yes`; those on-demand
+sources do not use the project's lock. Missing managers produce an error rather
+than silently changing sources. `biov pixi` passes native Pixi arguments through.
+
+Run an ordinary script with `biov run analysis.py`; use
+`biov run --executor lsf analysis.py` for an LSF submission receipt. A receipt is
+not a completion result. Managed analysis is a separate, currently local path.
+
+## Python data APIs
+
+This example runs locally without downloading data:
+
+```python
+import biov
+import pandas as pd
+
+regions = biov.BioDataFrame({"seqid": ["chr1"], "start": [0], "end": [10]})
+mask = biov.BioDataFrame({"seqid": ["chr1"], "start": [5], "end": [15]})
+clipped = regions.intersect(mask)  # chr1: [5, 10)
+
+dna = pd.Series(["ACGT", None], dtype="biov.dna")
+reverse = dna.seq.reverse_complement()
+gc = dna.seq.gc_fraction()
+```
+
+Interval APIs use 0-based, end-exclusive coordinates. They preserve row order and
+duplicates under their documented rules. Downloaded files retain their native
+coordinates; a download alone is not a coordinate conversion. Sequence types are
+explicit, so ordinary strings are not guessed to be DNA or protein. Read the
+[range](docs/guides/ranges.md) and [sequence](docs/guides/sequences.md) contracts.
+
+Identifier-backed files are resolved on the host that uses them:
+
+```python
+import biov
+
+protein_file = biov.path("uniprot://P42212")
+with biov.open("uniprot://P42212", artifact="entry_json", mode="rt") as handle:
+    metadata = handle.read()
+```
+
+These calls can download from the official provider on a cache miss. Use
+`biov.artifact_capabilities()` to inspect supported namespaces and formats
+without network access. RefSeq downloads require the official NCBI Datasets CLI
+on the execution host. See [provider files](docs/guides/artifacts.md) for fsspec,
+cache behavior and exact version handling.
+
+## Complete results, bounded previews
+
+`biov analyze REQUEST.json` runs a declared local analysis;
+`biov inspect-analysis RECORD` reads its saved facts without resubmitting it.
+The equivalent Python and MCP APIs share the same implementation.
+
+Outputs and run records persist under `BIOV_ANALYSIS_ROOT`. Default responses
+show at most two preview rows/records within a 32 KiB response cap; downstream
+analysis consumes the complete saved file. Missing or changed outputs fail
+explicitly. Execution success, scientific checks and biological interpretation
+are separate facts.
+
+MCP can read small registered outputs up to its 1 MiB resource limit. Larger
+client downloads require configured existing HTTP(S) storage or explicit transfer;
+an executor-local path is not automatically available to another client. See
+[managed analysis](docs/guides/analysis.md) for the two-step example, security
+boundary, tested clients/platforms and current remote-execution limits.
+
+## MCP and agent plugins
+
+Start the stdio server with `biov mcp`. It exposes identifier discovery, provider
+records and managed analysis tools/resources. It does not require a wrapper tool
+for each Python function. See the [MCP guide](docs/guides/identifiers.md).
+
+The repository also supplies Codex and Claude Code plugins with shared skills.
+[Plugin installation](docs/guides/plugins.md) is separate from installing BioV and
+its scientific environments. Skills guide method selection and interpretation;
+reusable computation stays in BioV or established scientific tools.
+
+## Rust direction
+
+The accepted target is a shared Rust core with a thin Python interface, plus CLI
+and MCP access. The present implementation is still predominantly Python with
+pandas, Biopython and RuRanges' Rust-backed kernels.
+
+Polars is the preferred dataframe candidate. Rust-Bio, noodles and direct Rust
+interval kernels will be evaluated against BioV's scientific contracts. Python
+remains a first-class interface, but this actively developed package may change
+names, signatures and return types, including replacing pandas/Biopython objects.
+No legacy compatibility layer is required merely to preserve an old API.
+
+This language choice is motivated by AI-assisted engineering and stronger
+compile-time checks, independently of uv's language choice. Scientific correctness
+still requires independent checks. See the [Rust migration plan](docs/guides/rust-migration.md)
+and [SPEC](SPEC.md) for stages, breaking-change policy and native-distribution gates.
+
+## Configuration and development
+
+`BIOV_HOME` selects the data cache root; `BIOV_ANALYSIS_ROOT` selects persistent
+analysis storage. Software environments and saved results have separate retention
+rules. See [configuration](docs/guides/configuration.md) for TOML, environment
+variables, fsspec settings and execution hosts.
+
+```sh
 uv run --locked pytest tests/ -q
+uv run --locked mkdocs build --strict
 uv run --locked prek run --all-files
 uv build
 ```
 
-The source distribution includes the Python package and its resources, Python
-tests, documentation and documentation build files. Skills and plugin files are
-distributed through Git; their tests run from the repository.
+The current source distribution includes package sources, resources, tests and
+documentation. Plugin files are distributed through Git. Native Rust packaging
+is planned, not part of this release. Existing score formulas and models are not
+biologically validated merely by migration; see the
+[CRISPR computation guide](docs/guides/crispr-computation.md).
 
-The uv development environment contains BioV's declared dependencies and development
-tools. Scientific scripts and native programs run through
-`biov exec [SOURCE:]NAME ARGS...`, for example `biov exec python analysis.py`.
-A bare name defaults to conda: it first selects a declared Pixi environment,
-otherwise a temporary Pixi environment. Declared environments install from their
-lock and run their declared `prepare` task once before execution. `conda:NAME` uses the same
-locked environment if declared, otherwise a temporary Pixi environment;
-`pypi:NAME` uses `uv tool run`, and `npm:NAME` uses `npx --yes`. These temporary
-sources resolve packages without the project's lock. Missing uv or npx produces
-an error with installation instructions; BioV does not switch sources.
-
-In a declared environment, a same-name native Pixi task takes precedence over
-the same-name executable. Entry tasks live in the shipped manifest:
-`biov exec r analysis.R` invokes Rscript, and `biov exec scvi analysis.py` runs a Python script
-in the scvi environment. `biov exec vina-meeko ARGS...` invokes Vina; use
-`biov pixi run` to select other programs in that suite.
-
-Arguments pass through without requiring `--`. Put BioV's `--cwd` and
-`--no-install` before the coordinate; `--no-install` skips installation and
-preparation for declared environments and rejects temporary sources. BioV reads application and SSH
-configuration on the execution host. Native Pixi commands remain available
-through `biov pixi`. Run commands already on the host PATH directly in your shell.
-Run `biov setup` to make a Pixi manager available on a new execution
-host, then `biov setup ENVIRONMENT` to install a locked scientific environment.
-A `BIOV_PIXI_BIN` path, then a matching `pixi` on `PATH`, is reused; only the
-managed copy under `BIOV_ENVIRONMENT_ROOT` is downloaded. Pixi is an optional
-runtime prerequisite for Pixi-backed commands and does not manage BioV
-development. Scientific requirements live in `[tool.pixi.*]` in
-`src/biov/assets/environments/pyproject.toml`, with resolved
-versions in its adjacent `pixi.lock`. Scientific environments target Linux x86_64.
-`biov setup --all` installs all declared environments without an agent. See the
-[software guide](docs/guides/environments.md).
-
-## Configuration
-
-Set environment variables before starting BioV:
-
-- `BIOV_HOME`: Path to custom cache directory (default: platform-specific cache dir)
-- `BIOV_CACHE_HTTP`: Enable/disable HTTP caching (default: True)
-
-The cache directory is determined by:
-1. `BIOV_HOME` if set
-2. `XDG_CACHE_HOME/biov` if XDG_CACHE_HOME is set
-3. Platform-specific cache directory otherwise
-
-Existing fsspec `filecache` configuration and explicit `cache_storage` options
-take precedence over BioV's default for ordinary cached URLs. Local data paths
-are configuration, not packaged metadata. See the
-[configuration guide](docs/guides/configuration.md) for cache examples.
-
-## Executables
-
-- biov
-
-Native scientific programs run through `biov exec` using package coordinates;
-BioV does not install a wrapper per program.
-
-## Supported formats
-
-- [x] GFF3
-- [x] PSL
-- [x] FASTA
-- [ ] BED
-- [ ] VCF
+[Documentation](https://tcztzy.github.io/biov/) · [MIT license](LICENSE)
