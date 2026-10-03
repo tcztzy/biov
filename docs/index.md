@@ -141,15 +141,18 @@ reusable computation stays in BioV or established scientific tools.
 
 ## Rust direction
 
-The accepted target is a shared Rust core with a thin Python interface, plus CLI
-and MCP access. The present implementation is still predominantly Python with
-pandas, Biopython and RuRanges' Rust-backed kernels.
+BioV is moving its main logic into reusable Rust libraries. The implemented
+sequence slice provides normalization, reverse complements, lengths and weighted
+IUPAC GC through Rust with a small PyO3 binding. The native `biov-rs` MCP route
+already executes local typed-table queries in Rust Polars, exports portable Arrow
+bundles, and reopens saved results after restart. See the
+[native dataset guide](guides/rust-datasets.md) for its tested limits and interfaces.
 
-Polars is the preferred dataframe candidate. Rust-Bio, noodles and direct Rust
-interval kernels will be evaluated against BioV's scientific contracts. Python
-remains a first-class interface, but this actively developed package may change
-names, signatures and return types, including replacing pandas/Biopython objects.
-No legacy compatibility layer is required merely to preserve an old API.
+The broader provider, tool-environment and managed-analysis routes still use
+Python; the native route does not yet replace them. Further sequence, interval
+and provider migrations require their own scientific contracts. Python bindings
+remain useful where justified, without requiring a parallel Python analysis API
+or legacy compatibility layers during active development.
 
 This language choice is motivated by AI-assisted engineering and stronger
 compile-time checks, independently of uv's language choice. Scientific correctness
@@ -171,8 +174,11 @@ uv build
 ```
 
 The current source distribution includes package sources, resources, tests and
-documentation. Plugin files are distributed through Git. Native Rust packaging
-is planned, not part of this release. Existing score formulas and models are not
+documentation, including the Rust workspace and lockfile. Maturin-built native
+Python wheels and unpacked source builds are tested on Linux; the native MCP
+binary is also installed and tested from source. Portable prebuilt binary and
+cross-platform release gates remain pending. Plugin files are distributed through
+Git. Existing score formulas and models are not
 biologically validated merely by migration; see the
 [CRISPR computation guide](guides/crispr-computation.md).
 

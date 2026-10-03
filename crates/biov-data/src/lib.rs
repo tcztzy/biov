@@ -15,6 +15,12 @@ use std::{
 };
 use uuid::Uuid;
 
+mod bundle;
+mod csv_input;
+mod reopen;
+pub use reopen::ReopenRequest;
+use reopen::ReopenVerification;
+
 pub const MAX_INPUT_BYTES: u64 = 16 * 1024 * 1024;
 pub const MAX_PREVIEW_ROWS: usize = 50;
 const MAX_DATASETS: usize = 16;
@@ -55,16 +61,6 @@ pub enum ColumnType {
     Int64,
     Float64,
     Boolean,
-}
-impl ColumnType {
-    fn dtype(&self) -> DataType {
-        match self {
-            Self::String => DataType::String,
-            Self::Int64 => DataType::Int64,
-            Self::Float64 => DataType::Float64,
-            Self::Boolean => DataType::Boolean,
-        }
-    }
 }
 #[derive(Debug, Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
@@ -142,6 +138,7 @@ struct Dataset {
     frame: DataFrame,
     provenance: Value,
     metadata: ScientificMetadata,
+    reopen_verification: Option<ReopenVerification>,
 }
 struct Artifact {
     path: PathBuf,
@@ -183,6 +180,7 @@ impl DatasetStore {
         frame: DataFrame,
         provenance: Value,
         metadata: ScientificMetadata,
+        reopen_verification: Option<ReopenVerification>,
         rows: usize,
     ) -> Result<Value> {
         validate_frame(&frame)?;
@@ -205,6 +203,7 @@ impl DatasetStore {
             frame,
             provenance,
             metadata,
+            reopen_verification,
         };
         let response = summarize(&id, &dataset, rows)?;
         self.datasets.insert(id, dataset);
@@ -246,59 +245,25 @@ impl DatasetStore {
         let digest = format!("{:x}", Sha256::digest(&bytes));
         let byte_len = bytes.len();
         checked(std::str::from_utf8(&bytes))?;
-        let mut csv = csv::ReaderBuilder::new()
-            .has_headers(true)
-            .from_reader(bytes.as_slice());
-        let headers = checked(csv.headers())?.clone();
-        if headers.is_empty() || headers.len() > MAX_COLUMNS {
-            return Err(err("table must have 1..64 columns"));
+        if self.datasets.len() >= MAX_DATASETS {
+            return Err(err("dataset limit reached; release a dataset first"));
         }
-        if headers
-            .iter()
-            .any(|name| name.is_empty() || name.len() > 128 || name.chars().any(char::is_control))
-        {
-            return Err(err(
-                "column names must be 1..128 bytes without control characters",
-            ));
-        }
-        let unique: std::collections::HashSet<_> = headers.iter().collect();
-        if unique.len() != headers.len() {
-            return Err(err("duplicate CSV column names are not permitted"));
-        }
-        if request
-            .schema
-            .keys()
-            .any(|name| !unique.contains(name.as_str()))
-        {
-            return Err(err("schema names must match existing CSV columns"));
-        }
-        // Reject ragged rows before Polars rather than silently padding or truncating.
-        for (index, row) in csv.records().enumerate() {
-            checked(row)?;
-            if (index + 1).saturating_mul(headers.len()).saturating_mul(17) > MAX_MEMORY_BYTES {
-                return Err(err("input row/column allocation exceeds dataset budget"));
-            }
-        }
-        let mut schema = Schema::with_capacity(headers.len());
-        for name in &headers {
-            schema.with_column(
-                name.into(),
-                request
-                    .schema
-                    .get(name)
-                    .map(ColumnType::dtype)
-                    .unwrap_or(DataType::String),
-            );
-        }
-        let frame = checked(
-            CsvReadOptions::default()
-                .with_has_header(true)
-                .with_schema(Some(std::sync::Arc::new(schema)))
-                .into_reader_with_file_handle(Cursor::new(bytes))
-                .finish(),
+        let retained = self.datasets.values().fold(0usize, |total, dataset| {
+            total.saturating_add(memory_charge(&dataset.frame))
+        });
+        let frame = csv_input::read(
+            &bytes,
+            &request.schema,
+            MAX_MEMORY_BYTES.saturating_sub(retained),
         )?;
         let provenance = json!({"source": request.path, "source_bytes": byte_len, "source_sha256": digest, "input_consistency": "parsed_same_in_memory_snapshot_as_digest", "operations": [], "csv_schema_policy": "strings_unless_explicitly_typed", "declared_schema": request.schema});
-        self.insert(frame, provenance, request.metadata, request.preview_rows)
+        self.insert(
+            frame,
+            provenance,
+            request.metadata,
+            None,
+            request.preview_rows,
+        )
     }
     pub fn preview(&mut self, request: PreviewRequest) -> Result<Value> {
         summarize(
@@ -351,9 +316,16 @@ impl DatasetStore {
             return Err(err("provenance exceeds bounded 8 KiB record limit"));
         }
         let metadata = source.metadata.clone();
-        self.insert(frame, provenance, metadata, request.preview_rows)
+        let verification = source.reopen_verification.clone();
+        self.insert(
+            frame,
+            provenance,
+            metadata,
+            verification,
+            request.preview_rows,
+        )
     }
-    /// Saves complete data and its record; unique names and create-new persistence prevent overwrites.
+    /// Saves a complete portable bundle; unique names and create-new persistence prevent overwrites.
     pub fn export(&mut self, request: ExportRequest) -> Result<Value> {
         if self.artifacts.len() >= 64 {
             return Err(err("session artifact limit reached"));
@@ -364,21 +336,43 @@ impl DatasetStore {
         let path = self.output_root.join(&filename);
         let mut temporary = checked(tempfile::NamedTempFile::new_in(&self.output_root))?;
         let mut frame = dataset.frame.clone();
-        checked(IpcWriter::new(temporary.as_file_mut()).finish(&mut frame))?;
+        // Use the upstream compatibility level so strings use widely supported
+        // LargeUtf8 storage and work directly with standard Arrow kernels.
+        checked(
+            IpcWriter::new(temporary.as_file_mut())
+                .with_compat_level(CompatLevel::oldest())
+                .finish(&mut frame),
+        )?;
         checked(temporary.as_file_mut().sync_all())?;
         let bytes = checked(temporary.as_file().metadata())?.len();
+        if bytes > reopen::MAX_IPC_BYTES {
+            return Err(err("export IPC artifact exceeds bounded reopen byte limit"));
+        }
         checked(temporary.as_file_mut().seek(SeekFrom::Start(0)))?;
         let mut hasher = Sha256::new();
         checked(std::io::copy(temporary.as_file_mut(), &mut hasher))?;
         let digest = format!("{:x}", hasher.finalize());
-        let record = json!({"record_version": 1, "artifact_id": artifact_id, "format": "arrow_ipc", "file": filename, "bytes": bytes, "sha256": digest, "row_count": frame.height(), "schema": schema(&frame), "scientific_metadata": dataset.metadata, "metadata_status": "caller_declared_or_unknown_not_provider_verified", "provenance": dataset.provenance, "software": {"biov": env!("CARGO_PKG_VERSION"), "polars": "0.51.0"}});
+        let record = json!({"record_version": 2, "artifact_id": artifact_id, "format": "arrow_ipc", "file": filename, "bytes": bytes, "sha256": digest, "row_count": frame.height(), "schema": schema(&frame), "scientific_metadata": dataset.metadata, "metadata_status": "caller_declared_or_unknown_not_provider_verified", "provenance": dataset.provenance, "reopen_verification": dataset.reopen_verification, "software": {"biov": env!("CARGO_PKG_VERSION"), "polars": "0.51.0"}});
+        let record_bytes = checked(serde_json::to_vec_pretty(&record))?;
+        if record_bytes.len() as u64 > reopen::MAX_RECORD_BYTES {
+            return Err(err("export record exceeds bounded reopen byte limit"));
+        }
+        // Serialize and check all predictable byte limits before publishing any
+        // final filename. Descriptive companions do not change strict record v2.
+        let companions = bundle::Companions::new(&record, &record_bytes, &frame)?;
         let record_path = self.output_root.join(format!("{artifact_id}.json"));
-        let mut record_file = checked(tempfile::NamedTempFile::new_in(&self.output_root))?;
-        checked(record_file.write_all(&checked(serde_json::to_vec_pretty(&record))?))?;
-        checked(record_file.as_file_mut().sync_all())?;
+        let manifest_path = self.output_root.join(&companions.manifest_name);
+        let readme_path = self.output_root.join(&companions.readme_name);
+        let record_file = staged_file(&self.output_root, &record_bytes)?;
+        let manifest_file = staged_file(&self.output_root, &companions.manifest_bytes)?;
+        let readme_file = staged_file(&self.output_root, &companions.readme_bytes)?;
         checked(temporary.persist_noclobber(&path))?;
-        // If the record write fails, the complete IPC stays independently usable but no success is reported.
+        // Filesystem publication is not atomic across four files. On an I/O
+        // failure already-persisted files remain usable, but no success or
+        // session artifact handle is returned for the incomplete bundle.
         checked(record_file.persist_noclobber(&record_path))?;
+        checked(manifest_file.persist_noclobber(&manifest_path))?;
+        checked(readme_file.persist_noclobber(&readme_path))?;
         self.artifacts.insert(
             artifact_id.clone(),
             Artifact {
@@ -388,7 +382,7 @@ impl DatasetStore {
             },
         );
         Ok(
-            json!({"artifact_id": artifact_id, "format": "arrow_ipc", "bytes": bytes, "sha256": digest, "execution_host_path": path, "record_path": record_path, "record": record, "retrieval": {"tool": "dataset_read_artifact", "max_chunk_bytes": MAX_CHUNK_BYTES, "session_scoped": true}, "retention": "files persist; never automatically deleted"}),
+            json!({"artifact_id": artifact_id, "format": "arrow_ipc", "bytes": bytes, "sha256": digest, "execution_host_path": path, "record_path": record_path, "record": record, "manifest_path": manifest_path, "readme_path": readme_path, "retrieval": {"tool": "dataset_read_artifact", "max_chunk_bytes": MAX_CHUNK_BYTES, "session_scoped": true}, "retention": "files persist; never automatically deleted"}),
         )
     }
     pub fn read_artifact(&mut self, request: ReadArtifactRequest) -> Result<Value> {
@@ -427,6 +421,13 @@ impl DatasetStore {
         }
         Ok(json!({"released": request.dataset_id, "exported_files_preserved": true}))
     }
+}
+
+fn staged_file(root: &Path, bytes: &[u8]) -> Result<tempfile::NamedTempFile> {
+    let mut file = checked(tempfile::NamedTempFile::new_in(root))?;
+    checked(file.write_all(bytes))?;
+    checked(file.as_file_mut().sync_all())?;
+    Ok(file)
 }
 
 // Polars 0.51 string estimates omit the 16-byte view array. Charge a conservative
@@ -544,7 +545,7 @@ fn summarize(id: &str, dataset: &Dataset, count: usize) -> Result<Value> {
         rows.push(row);
     }
     Ok(
-        json!({"dataset_id": id, "row_count": frame.height(), "column_count": frame.width(), "schema": schema(frame), "preview": {"rows": rows, "requested_rows": count, "returned_rows": rows.len(), "omitted_rows": frame.height()-rows.len(), "truncated_cells": truncated_cells, "max_cell_bytes": 256, "row_order": "source order unless explicit stable sort", "not_complete_data": rows.len() != frame.height() || truncated_cells > 0}, "scientific_metadata": dataset.metadata, "metadata_status": "caller_declared_or_unknown_not_provider_verified", "source_sha256": dataset.provenance["source_sha256"], "handle_lifetime": "server_session", "last_operation": dataset.provenance["operations"].as_array().and_then(|ops| ops.last()), "engine": "rust_polars"}),
+        json!({"dataset_id": id, "row_count": frame.height(), "column_count": frame.width(), "schema": schema(frame), "preview": {"rows": rows, "requested_rows": count, "returned_rows": rows.len(), "omitted_rows": frame.height()-rows.len(), "truncated_cells": truncated_cells, "max_cell_bytes": 256, "row_order": "source order unless explicit stable sort", "not_complete_data": rows.len() != frame.height() || truncated_cells > 0}, "scientific_metadata": dataset.metadata, "metadata_status": "caller_declared_or_unknown_not_provider_verified", "source_sha256": dataset.provenance["source_sha256"], "reopen_verification": dataset.reopen_verification, "handle_lifetime": "server_session", "last_operation": dataset.provenance["operations"].as_array().and_then(|ops| ops.last()), "engine": "rust_polars"}),
     )
 }
 fn bounded_text(value: &str) -> (String, bool) {
@@ -903,6 +904,20 @@ mod tests {
             frame.column("description").unwrap().str().unwrap().get(0),
             Some(text.as_str())
         );
+    }
+    #[test]
+    fn oversized_export_record_fails_before_publishing_any_bundle_file() {
+        let (dir, mut store) = setup("id\n001\n");
+        let opened = open(&mut store, 0);
+        let id = opened["dataset_id"].as_str().unwrap().to_owned();
+        // Fault injection into private state exercises the final export guard;
+        // normal public insertion already bounds provenance to 8 KiB.
+        store.datasets.get_mut(&id).unwrap().provenance =
+            json!({"oversized": "x".repeat(reopen::MAX_RECORD_BYTES as usize)});
+        let error = store.export(ExportRequest { dataset_id: id }).unwrap_err();
+        assert!(error.to_string().contains("export record exceeds"));
+        assert_eq!(fs::read_dir(dir.path().join("outputs")).unwrap().count(), 0);
+        assert!(store.artifacts.is_empty());
     }
     #[test]
     fn schema_and_session_count_are_bounded() {
