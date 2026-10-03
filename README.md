@@ -30,7 +30,9 @@ method and interpretation; BioV handles repeatable data and execution rules.
 
 ## Install and run
 
-The current package requires Python 3.12 or newer. From this checkout:
+The current package requires Python 3.12 or newer. Source builds now also require
+Rust 1.89.0 (pinned in `rust-toolchain.toml`) and a C linker. Install Rust through
+[the official rustup installer](https://rustup.rs/), then from this checkout:
 
 ```sh
 uv sync --locked
@@ -142,8 +144,10 @@ reusable computation stays in BioV or established scientific tools.
 ## Rust direction
 
 The accepted target is a shared Rust core with a thin Python interface, plus CLI
-and MCP access. The present implementation is still predominantly Python with
-pandas, Biopython and RuRanges' Rust-backed kernels.
+and MCP access. Normalization and IUPAC reverse complement now execute in the
+shared Rust core through PyO3. The rest remains predominantly Python with pandas,
+Biopython and RuRanges' Rust-backed kernels. The new batch API returns nullable
+Python string lists; see the [sequence contract](docs/guides/sequence-contract.md).
 
 Polars is the preferred dataframe candidate. Rust-Bio, noodles and direct Rust
 interval kernels will be evaluated against BioV's scientific contracts. Python
@@ -164,6 +168,9 @@ rules. See [configuration](docs/guides/configuration.md) for TOML, environment
 variables, fsspec settings and execution hosts.
 
 ```sh
+cargo test --workspace --locked
+cargo fmt --all -- --check
+cargo clippy --workspace --all-targets --locked -- -D warnings
 uv run --locked pytest tests/ -q
 uv run --locked mkdocs build --strict
 uv run --locked prek run --all-files
@@ -171,8 +178,12 @@ uv build
 ```
 
 The current source distribution includes package sources, resources, tests and
-documentation. Plugin files are distributed through Git. Native Rust packaging
-is planned, not part of this release. Existing score formulas and models are not
+documentation, Cargo sources and the lockfile. Plugin files are distributed through
+Git. Maturin builds the native extension. Installing a BioV wheel does not compile
+BioV, but dependencies may still need compilers where their wheels are unavailable.
+This slice validates local Linux x86_64 builds, not a portable release matrix.
+See [source builds and release gates](docs/guides/rust-migration.md#source-builds-and-native-validation).
+Existing score formulas and models are not
 biologically validated merely by migration; see the
 [CRISPR computation guide](docs/guides/crispr-computation.md).
 

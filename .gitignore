@@ -20,3 +20,7 @@ site/
 
 # macOS
 .DS_Store
+
+# Rust build products
+target/
+*.so

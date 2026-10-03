@@ -1,9 +1,10 @@
 # Rust core and Python interface
 
-This is an accepted direction, not a description of a completed rewrite.
-BioV's main logic will move to Rust and remain accessible through a thin Python
-interface, a CLI and MCP. The current implementation is predominantly Python,
-with pandas, Biopython and RuRanges' Rust-backed interval kernels.
+The first slice is implemented: normalization and IUPAC reverse complement run
+in a shared Rust core with a thin PyO3 batch binding. See the [sequence
+contract](sequence-contract.md) for types, errors and independent scientific
+fixtures. The rest of the rewrite remains planned; pandas, Biopython and
+RuRanges' Rust-backed interval kernels still support unmigrated features.
 
 Rust is a deliberate choice for AI-assisted engineering: compiler-checked types,
 ownership and explicit errors can catch classes of mistakes early. This does not
@@ -162,3 +163,62 @@ all Cargo/Python sources, lock/build metadata, resources, licenses, tests and do
 build and test it after unpacking. Evaluate abi3 against real dependencies rather
 than assume it covers every interpreter/ABI. Standalone CLI archives need separate
 target tests and checksums. See [maturin distribution](https://www.maturin.rs/distribution.html).
+
+
+## Source builds and native validation
+
+The Cargo workspace contains `biov-core` (library and development `biov-core`
+binary) and `biov-python` (PyO3 extension). Rust 1.89.0 is both the pinned
+build toolchain and declared MSRV. PyO3 is pinned to 0.26.0; the committed Cargo
+lockfile controls its transitive dependencies. Maturin 1.15.0 is the pinned PEP 517 build
+backend. The Python 3.12 stable ABI is selected for this small string/list-only
+boundary; no NumPy ABI or interpreter objects cross detached Rust computation.
+CPython 3.12–3.14 are the acceptance matrix. This does not claim free-threaded
+Python or alternate-interpreter support.
+
+For a checkout or unpacked sdist, install the official Rust toolchain, a C linker
+(`cc` on Linux; Xcode Command Line Tools on macOS), Python >=3.12 and uv. Then:
+
+```sh
+cargo test --workspace --locked
+uv sync --locked
+uv run --locked pytest tests/ -q
+uv build
+```
+
+The sdist includes both Cargo.lock and uv.lock for reproducible reference tests.
+Build and install its wheel directly with `uv build --wheel` and
+`uv pip install <wheel>` if only the package is needed.
+The build needs access to crates.io and the Python package index unless their
+artifacts are cached. Rebuild the extension with `uv sync --reinstall-package biov`
+after Rust edits; Python-only source edits remain editable. Never add a Python
+fallback to make an unbuilt checkout import successfully.
+
+```sh
+cargo run --locked -p biov-core --bin biov-core -- reverse-complement dna ACGTRYN
+# NRYACGT
+```
+
+This development binary supports only `normalize` and `reverse-complement` with
+an explicit kind and one sequence argument. It returns one normalized sequence
+and newline on stdout, or an error on stderr and exit status 2. `--help` exits 0.
+It is not bundled as a standalone release artifact and does not replace the
+existing Python `biov` CLI/MCP entry points.
+
+Local Linux x86_64 wheels are smoke-tested outside the checkout; the sdist is
+unpacked, rebuilt and tested separately. Such `linux_x86_64` wheels are host-built
+artifacts, not manylinux release promises. The portable Linux release gate is
+manylinux_2_28 (glibc >=2.28); the macOS ARM64 gate is deployment target 11.0.
+Neither target is advertised as released until a wheel built for that target
+passes native install/import/runtime tests. The macOS target cannot be validated
+by a Linux cross-build. CI keeps the Python acceptance matrix and Rust tests,
+and verifies package assets plus wheel/source rebuild behavior. A separate
+portable-wheel release workflow remains outstanding.
+
+
+The local acceptance run installed the same CPython-3.12-abi3 BioV wheel under
+CPython 3.12, 3.13 and 3.14. The 3.14 installation had to build the existing
+`ruranges==0.2.7` dependency from source using Rust. Thus a compiler-free *complete
+installation* on 3.14 is not established by BioV's abi3 wheel. The release gate
+must check availability of wheels for all retained dependencies as well as BioV;
+source-build tooling remains necessary when any required wheel is missing.

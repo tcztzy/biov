@@ -1,5 +1,7 @@
 """High-performance bioinformatics infrastructure for AI agents."""
 
+from ._native import normalize_sequences as normalize_sequences
+from ._native import reverse_complements as reverse_complements
 from .alignment import align_paired_reads as align_paired_reads
 from .artifacts import Artifact as Artifact
 from .artifacts import artifact_capabilities as artifact_capabilities
@@ -28,10 +30,12 @@ __all__ = [
     "SequenceValidationError",
     "align_paired_reads",
     "artifact_capabilities",
+    "normalize_sequences",
     "open",
     "parse_identifier",
     "path",
     "read_fasta",
     "read_gff3",
+    "reverse_complements",
     "settings",
 ]
