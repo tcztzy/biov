@@ -51,4 +51,5 @@ nav:
   - Scientific environments: guides/environments.md
   - Plugins: guides/plugins.md
   - Rust migration: guides/rust-migration.md
+  - Native sequence contract: guides/sequence-contract.md
 - API Reference: reference/

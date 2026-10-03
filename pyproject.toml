@@ -57,14 +57,30 @@ encode = "biov.filesystem:BioVFileSystem"
 "reactome" = "biov.filesystem:BioVFileSystem"
 
 [build-system]
-requires = ["uv_build>=0.12.9,<0.13"]
-build-backend = "uv_build"
+requires = ["maturin==1.15.0"]
+build-backend = "maturin"
 
-[tool.uv.build-backend]
-module-name = ["biov", "crisprprimer"]
-source-include = ["docs/**", "tests/**", "mkdocs.yml", "scripts/gen_ref_pages.py"]
-# Plugin source and its tests are distributed through Git.
-source-exclude = ["tests/test_plugin_distribution.py", "docs/**/.pixi/**"]
+[tool.maturin]
+manifest-path = "crates/biov-python/Cargo.toml"
+python-source = "src"
+module-name = "biov._native"
+python-packages = ["biov", "crisprprimer"]
+features = ["extension-module"]
+locked = true
+include = [
+    { path = "Cargo.toml", format = "sdist" },
+    { path = "Cargo.lock", format = "sdist" },
+    { path = "uv.lock", format = "sdist" },
+    { path = "rust-toolchain.toml", format = "sdist" },
+    { path = "crates/**/*", format = "sdist" },
+    { path = "docs/**/*", format = "sdist" },
+    { path = "tests/**/*", format = "sdist" },
+    { path = "scripts/**/*", format = "sdist" },
+    { path = "SPEC.md", format = "sdist" },
+    { path = "AGENTS.md", format = "sdist" },
+    { path = "mkdocs.yml", format = "sdist" },
+]
+exclude = ["**/__pycache__/**", "**/*.pyc", "docs/**/.pixi/**", "tests/test_plugin_distribution.py"]
 
 [dependency-groups]
 dev = [

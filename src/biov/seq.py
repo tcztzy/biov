@@ -31,21 +31,16 @@ from pandas.api.typing.aliases import (
 from pydantic import GetCoreSchemaHandler
 from pydantic_core import CoreSchema, core_schema
 
+from ._native import (
+    SequenceValidationError,
+    normalize_sequences,
+    reverse_complements,
+)
+
 SequenceKind = Literal["dna", "rna", "protein"]
 
-_DNA_ALPHABET = frozenset("ACGTRYSWKMBDHVN")
-_RNA_ALPHABET = frozenset("ACGURYSWKMBDHVN")
+_KINDS = frozenset({"dna", "rna", "protein"})
 _CANONICAL_AMINO_ACIDS = "ACDEFGHIKLMNPQRSTVWY"
-_PROTEIN_ALPHABET = frozenset(f"{_CANONICAL_AMINO_ACIDS}BJOUXZ*")
-_ALPHABETS = {
-    "dna": _DNA_ALPHABET,
-    "rna": _RNA_ALPHABET,
-    "protein": _PROTEIN_ALPHABET,
-}
-
-
-class SequenceValidationError(ValueError):
-    """Raised when a value violates a declared BioV sequence contract."""
 
 
 class Seq(_Seq):
@@ -74,7 +69,7 @@ class SequenceDtype(ExtensionDtype):
         Raises:
             TypeError: If sequence_kind is unknown.
         """
-        if sequence_kind not in _ALPHABETS:
+        if sequence_kind not in _KINDS:
             raise TypeError(f"Unknown BioV sequence kind: {sequence_kind!r}")
         self.sequence_kind = sequence_kind
 
@@ -112,7 +107,7 @@ class SequenceDtype(ExtensionDtype):
         if not isinstance(string, str) or not string.startswith(prefix):
             raise TypeError(f"Cannot construct a SequenceDtype from {string!r}")
         kind = string.removeprefix(prefix)
-        if kind not in _ALPHABETS:
+        if kind not in _KINDS:
             raise TypeError(f"Cannot construct a SequenceDtype from {string!r}")
         return cls(cast(SequenceKind, kind))
 
@@ -159,18 +154,34 @@ def _normalize_sequence(
         raise SequenceValidationError(
             f"{dtype.name} values must be a string or missing, got {type(value).__name__}"
         )
-    normalized = value.upper()
-    invalid = sorted(set(normalized) - _ALPHABETS[dtype.sequence_kind])
-    if invalid:
-        label = (
-            dtype.sequence_kind.upper()
-            if dtype.sequence_kind in {"dna", "rna"}
-            else "protein"
-        )
-        raise SequenceValidationError(
-            f"invalid {label} symbol(s): {', '.join(invalid)}"
-        )
-    return normalized
+    return cast(str, normalize_sequences([value], kind=dtype.sequence_kind)[0])
+
+
+def _normalize_sequences(
+    values: Sequence[object], dtype: SequenceDtype
+) -> list[object]:
+    """Adapt pandas missing markers and cross the native boundary once per batch.
+
+    Returns:
+        Normalized strings with pandas missing values.
+
+    Raises:
+        SequenceValidationError: If a nonmissing element is not a string.
+    """
+    adapted: list[str | None] = []
+    for value in values:
+        if _is_missing(value):
+            adapted.append(None)
+        elif isinstance(value, str):
+            adapted.append(value)
+        else:
+            raise SequenceValidationError(
+                f"{dtype.name} values must be a string or missing, got {type(value).__name__}"
+            )
+    return [
+        pd.NA if value is None else value
+        for value in normalize_sequences(adapted, kind=dtype.sequence_kind)
+    ]
 
 
 class SequenceArray(ExtensionArray):
@@ -185,7 +196,7 @@ class SequenceArray(ExtensionArray):
     ) -> None:
         """Validate and store normalized sequence values."""
         self._dtype = _coerce_dtype(dtype)
-        normalized = [_normalize_sequence(value, self._dtype) for value in values]
+        normalized = _normalize_sequences(cast(Sequence[object], values), self._dtype)
         self._data = np.asarray(normalized, dtype=object)
         if copy:
             self._data = self._data.copy()
@@ -301,10 +312,7 @@ class SequenceArray(ExtensionArray):
         if is_scalar(value):
             self._data[cast(Any, key)] = _normalize_sequence(value, self.dtype)
             return
-        values = [
-            _normalize_sequence(item, self.dtype)
-            for item in cast(Sequence[object], value)
-        ]
+        values = _normalize_sequences(cast(Sequence[object], value), self.dtype)
         self._data[cast(Any, key)] = values
 
     def __array__(
@@ -417,7 +425,7 @@ class SequenceArray(ExtensionArray):
 
 @register_series_accessor("seq")
 class SequenceAccessor:
-    """Vectorized Biopython algorithms for explicitly typed sequence Series."""
+    """Typed pandas adapters over Rust and not-yet-migrated Biopython operations."""
 
     def __init__(self, pandas_obj: Series) -> None:
         """Validate and retain an explicitly typed sequence Series.
@@ -474,17 +482,10 @@ class SequenceAccessor:
     def reverse_complement(self) -> Series:
         """Return DNA or RNA reverse complements with the same dtype."""
         self._require_nucleic()
-        is_rna = self._array.dtype.sequence_kind == "rna"
-        values = [
-            pd.NA
-            if value is pd.NA
-            else str(
-                _Seq(cast(str, value)).reverse_complement_rna()
-                if is_rna
-                else _Seq(cast(str, value)).reverse_complement()
-            )
-            for value in self._array
+        adapted = [
+            None if value is pd.NA else cast(str, value) for value in self._array
         ]
+        values = reverse_complements(adapted, kind=self._array.dtype.sequence_kind)
         return Series(
             values,
             index=self._obj.index,

@@ -13,13 +13,16 @@ protein = pd.Series(["MKWVTF"], dtype="biov.protein")
 
 The dtype is required. BioV never guesses sequence kind from an ordinary string Series, and accessing `.seq` on one raises `AttributeError`.
 
-Values are normalized to uppercase. `None` and `pd.NA` remain missing, while an empty string remains a present sequence of length zero. DNA accepts `ACGTRYSWKMBDHVN`; RNA accepts `ACGURYSWKMBDHVN`; protein accepts the 20 canonical amino acids plus `B`, `J`, `O`, `U`, `X`, `Z`, and `*`. Any other symbol or non-string value raises `SequenceValidationError` when the array is created or assigned.
+Values are normalized to ASCII uppercase by the Rust core. Non-ASCII characters
+are rejected, including Unicode characters whose case-folding could resemble a
+valid biological symbol. See the [native sequence contract](sequence-contract.md)
+for the direct nullable-list batch API. `None` and `pd.NA` remain missing, while an empty string remains a present sequence of length zero. DNA accepts `ACGTRYSWKMBDHVN`; RNA accepts `ACGURYSWKMBDHVN`; protein accepts the 20 canonical amino acids plus `B`, `J`, `O`, `U`, `X`, `Z`, and `*`. Any other symbol or non-string value raises `SequenceValidationError` when the array is created or assigned.
 
 All three types expose nullable integer `Series.seq.length`.
 
 DNA and RNA expose:
 
-- `reverse_complement()`, returning the same sequence dtype;
+- `reverse_complement()`, using the Rust core and returning the same sequence dtype;
 - `gc_fraction()`, using Biopython's weighted IUPAC ambiguity model and returning 0 for an empty sequence;
 - `translate(table=1, to_stop=False)`, returning `biov.protein` and requiring each present nucleotide sequence to contain complete codons.
 

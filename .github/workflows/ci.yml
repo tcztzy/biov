@@ -62,16 +62,16 @@ jobs:
               n for n in names if n.endswith("dist-info/entry_points.txt")
           )
           entry_points = zipfile.ZipFile(wheel).read(entry_points_name).decode()
-          assert "biov = biov.cli:app" in entry_points
-          assert "crisprprimer = crisprprimer.__main__:run" in entry_points
-          assert "biov-azimuth = biov.azimuth:main" in entry_points
+          config = configparser.ConfigParser()
+          config.read_string(entry_points)
+          assert config["console_scripts"]["biov"] == "biov.cli:app"
+          assert config["console_scripts"]["crisprprimer"] == "crisprprimer.__main__:run"
+          assert config["console_scripts"]["biov-azimuth"] == "biov.azimuth:main"
           for asset in ("restriction_enzymes.json", "cfd.mm.scores.cas9.txt", "cfd.pam.scores.cas9.txt"):
               assert f"crisprprimer/{asset}" in names
           assert "crisprprimer/NAU2MSU.json" not in names
           assert "biov/assets/azimuth.Dockerfile" in names
           assert "biov-mcp" not in entry_points
-          config = configparser.ConfigParser()
-          config.read_string(entry_points)
           manifest = json.loads(
               zipfile.ZipFile(wheel).read("biov/assets/artifact_capabilities.json")
           )
@@ -86,71 +86,33 @@ jobs:
               assert not any("/api_catalogs/" in n or n.endswith("/catalogs.py") for n in package_names)
           print("package inspection passed")
           PY
-      - name: Assert the sdist ships only project files
+      - name: Verify source distribution boundaries
+        run: python3 scripts/check_sdist.py dist/*.tar.gz
+      - name: Install and exercise wheel outside checkout
         run: |
-          python3 - <<'PY'
-          import re
-          import subprocess
-          import tarfile
-          import tomllib
-          from pathlib import Path
+          uv venv /tmp/biov-wheel
+          uv pip install --python /tmp/biov-wheel/bin/python dist/*.whl pytest biopython==1.88
+          cd /tmp
+          /tmp/biov-wheel/bin/python -c 'import biov; assert biov.reverse_complements(["acgtryn", None, ""], kind="dna") == ["NRYACGT", None, ""]'
+          /tmp/biov-wheel/bin/biov --help
+          /tmp/biov-wheel/bin/pytest "$GITHUB_WORKSPACE/tests/test_native_sequence.py" -q
+      - name: Rebuild unpacked source distribution
+        run: |
+          mkdir /tmp/biov-source
+          tar -xf dist/*.tar.gz -C /tmp/biov-source
+          cd /tmp/biov-source/biov-*
+          cargo test --workspace --locked
+          uv build --wheel --out-dir /tmp/biov-source-wheels
+          uv pip install --python /tmp/biov-wheel/bin/python --reinstall /tmp/biov-source-wheels/*.whl biopython==1.88
+          cd /tmp
+          /tmp/biov-wheel/bin/pytest "$GITHUB_WORKSPACE/tests/test_native_sequence.py" -q
 
-          config = tomllib.load(open("pyproject.toml", "rb"))
-          metadata = config["project"]
-          backend = config["tool"]["uv"]["build-backend"]
-          version = metadata["version"]
-          sdist = f"dist/biov-{version}.tar.gz"
-          # uv_build records the original manifest alongside the resolved one.
-          generated = {"PKG-INFO", "pyproject.toml.orig"}
-
-          with tarfile.open(sdist) as archive:
-              members = [m for m in archive.getmembers() if not m.isdir()]
-              shipped = {m.name.split("/", 1)[1] for m in members if "/" in m.name}
-              contents = []
-              for member in members:
-                  if member.isfile() and (stream := archive.extractfile(member)):
-                      contents.append(stream.read())
-
-          project = set(
-              subprocess.run(
-                  ["git", "ls-files", "-z", "-co", "--exclude-standard"],
-                  capture_output=True,
-                  text=True,
-                  check=True,
-              ).stdout.split("\0")
-          ) - {""}
-
-          patterns = [
-              *(f"src/{module}/**/*" for module in backend["module-name"]),
-              *metadata["license-files"],
-              *backend["source-include"],
-          ]
-          # Python 3.12 treats a trailing ** as directories only. Expand
-          # recursive contents explicitly to match uv_build on every runner.
-          selected = {"pyproject.toml", metadata["readme"]} | {
-              path.as_posix()
-              for pattern in patterns
-              for path in Path().glob(pattern + "/*" if pattern.endswith("/**") else pattern)
-              if path.is_file()
-          }
-          excluded = {
-              path.as_posix()
-              for pattern in backend["source-exclude"]
-              for path in Path().glob(pattern + "/*" if pattern.endswith("/**") else pattern)
-              if path.is_file()
-          }
-          expected = project & (selected - excluded)
-          assert shipped - generated == expected, (
-              f"sdist project mismatch: missing={sorted(expected - shipped)}, "
-              f"unexpected={sorted(shipped - generated - expected)}"
-          )
-          # `uv build` derives the inspected wheel from this sdist, so the
-          # wheel assertions above already prove the sdist is self-contained.
-          # SPEC V60: packaged metadata carries no workstation-specific paths.
-          # The alternation keeps this pattern from matching its own source.
-          workstation = re.compile(rb"/(?:Users|Volumes)/")
-          assert not any(workstation.search(body) for body in contents), (
-              "sdist contains workstation-specific paths"
-          )
-          print(f"sdist ships exactly the {len(expected)} selected project files")
-          PY
+  rust:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - name: Check pinned Rust workspace
+        run: |
+          cargo fmt --all -- --check
+          cargo test --workspace --locked
+          cargo clippy --workspace --all-targets --locked -- -D warnings

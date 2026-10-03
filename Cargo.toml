@@ -1,0 +1,13 @@
+[workspace]
+members = ["crates/biov-core", "crates/biov-python"]
+resolver = "2"
+
+[workspace.package]
+version = "0.1.2"
+edition = "2021"
+rust-version = "1.89"
+license = "MIT"
+
+[workspace.dependencies]
+biov-core = { path = "crates/biov-core" }
+pyo3 = { version = "=0.26.0", features = ["abi3-py312"] }
