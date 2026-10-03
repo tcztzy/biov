@@ -409,6 +409,15 @@ the resulting wheel with `uv pip install <wheel>`. To create a new sdist as well
 as a wheel, run `uv build` from a Git checkout with tracked sources. The configured
 Git sdist generator requires that checkout, so do not use plain `uv build` to
 rebuild an unpacked sdist.
+
+`scripts/check_sdist.py dist/biov-*.tar.gz` checks exact parity with the selected
+source paths in the current build checkout, as well as required files and package
+boundaries. Run it against the matching, unchanged checkout immediately after
+building. Adding, removing or renaming source files afterward, including untracked
+files under selected source directories, changes that expected set and can report
+a mismatch. This is a checkout-parity gate, not standalone inspection of an old
+archive from an unrelated or later working tree.
+
 The build needs access to crates.io and the Python package index unless their
 artifacts are cached. Rebuild the extension with `uv sync --reinstall-package biov`
 after Rust edits; Python-only source edits remain editable. Never add a Python

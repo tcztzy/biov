@@ -350,7 +350,7 @@ moved files, checks that BioV is absent, and blocks attempted network/process/
 SQLite access through a Python audit hook. It is distinct from the pytest driver
 and does not use the MCP response as its data dictionary. The installed Linux
 acceptance passed with direct filtering of the exported `LargeUtf8` table,
-without casts or BioV helpers. All 39 `biov-data` tests and nine actual MCP
+without casts or BioV helpers. All 50 `biov-data` tests and 11 actual MCP
 subprocess cases also pass; other platforms and native client integrations
 remain outside this validation claim.
 
@@ -382,8 +382,8 @@ BIOV_TEST_BINARY="$(command -v biov-rs)" cargo test -p biov-cli --test mcp_stdio
 
 ### Verified implementation scope (2026-10-03)
 
-The paired-reopen extension passes all 29 `biov-data` tests within the full
-Rust workspace suite. All nine real MCP subprocess cases also pass against an
+After the CSV parser consistency fix, the current suite passes 50 `biov-data`
+tests and 89 workspace tests/doctests. All 11 real MCP subprocess cases pass against an
 independently installed Linux x86_64 binary launched outside the checkout with
 an empty PATH. This includes restarting between export and reuse, full-byte
 reconstruction and typed readback. Adversarial metadata tests refresh the JSON
@@ -393,7 +393,7 @@ shape and allocation checks.
 For the initial six-tool slice, on a fresh Linux x86_64 cloud checkout, Rust
 1.89.0 and the locked dependencies were installed from official sources. The Rust
 workspace tests include the
-real-server MCP client flow, and the same seven subprocess cases pass against
+real-server MCP client flow; at that initial milestone, seven subprocess cases passed against
 an independently installed binary launched outside the checkout with an empty
 PATH. The complete source distribution retains all workspace members and its
 lockfile; source-distribution tests, wheel build and installed sequence bindings
