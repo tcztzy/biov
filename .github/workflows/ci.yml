@@ -95,7 +95,7 @@ jobs:
           cd /tmp
           /tmp/biov-wheel/bin/python -c 'import biov; assert biov.reverse_complements(["acgtryn", None, ""], kind="dna") == ["NRYACGT", None, ""]'
           /tmp/biov-wheel/bin/biov --help
-          /tmp/biov-wheel/bin/pytest "$GITHUB_WORKSPACE/tests/test_native_sequence.py" -q
+          /tmp/biov-wheel/bin/pytest "$GITHUB_WORKSPACE/tests/test_native_sequence.py" "$GITHUB_WORKSPACE/tests/test_native_metrics.py" -q
       - name: Rebuild unpacked source distribution
         run: |
           mkdir /tmp/biov-source
@@ -105,7 +105,7 @@ jobs:
           uv build --wheel --out-dir /tmp/biov-source-wheels
           uv pip install --python /tmp/biov-wheel/bin/python --reinstall /tmp/biov-source-wheels/*.whl biopython==1.88
           cd /tmp
-          /tmp/biov-wheel/bin/pytest "$GITHUB_WORKSPACE/tests/test_native_sequence.py" -q
+          /tmp/biov-wheel/bin/pytest "$GITHUB_WORKSPACE/tests/test_native_sequence.py" "$GITHUB_WORKSPACE/tests/test_native_metrics.py" -q
 
   rust:
     runs-on: ubuntu-latest

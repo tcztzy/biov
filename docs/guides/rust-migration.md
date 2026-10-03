@@ -1,7 +1,8 @@
 # Rust core and Python interface
 
-The first slice is implemented: normalization and IUPAC reverse complement run
-in a shared Rust core with a thin PyO3 batch binding. See the [sequence
+Native sequence slices are implemented: normalization, IUPAC reverse complement,
+validated sequence lengths and weighted GC fractions run in a shared Rust core
+with thin PyO3 batch bindings. See the [sequence
 contract](sequence-contract.md) for types, errors and independent scientific
 fixtures. The rest of the rewrite remains planned; pandas, Biopython and
 RuRanges' Rust-backed interval kernels still support unmigrated features.

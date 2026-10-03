@@ -144,10 +144,10 @@ reusable computation stays in BioV or established scientific tools.
 ## Rust direction
 
 The accepted target is a shared Rust core with a thin Python interface, plus CLI
-and MCP access. Normalization and IUPAC reverse complement now execute in the
-shared Rust core through PyO3. The rest remains predominantly Python with pandas,
+and MCP access. Normalization, IUPAC reverse complement, validated sequence
+lengths and weighted GC fractions execute in the shared Rust core through PyO3. The rest remains predominantly Python with pandas,
 Biopython and RuRanges' Rust-backed kernels. The new batch API returns nullable
-Python string lists; see the [sequence contract](docs/guides/sequence-contract.md).
+Python lists of strings or numeric results; see the [sequence contract](docs/guides/sequence-contract.md).
 
 Polars is the preferred dataframe candidate. Rust-Bio, noodles and direct Rust
 interval kernels will be evaluated against BioV's scientific contracts. Python

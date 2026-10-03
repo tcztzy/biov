@@ -27,7 +27,7 @@ impl fmt::Display for SequenceError {
                 };
                 write!(f, "invalid {label} symbol(s): {symbols}")
             }
-            Self::NotNucleic => write!(f, "Reverse complement requires DNA or RNA"),
+            Self::NotNucleic => write!(f, "This operation requires DNA or RNA"),
         }
     }
 }
@@ -134,6 +134,68 @@ pub fn reverse_complement_batch(
         .collect()
 }
 
+/// Validated biological-symbol count, not UTF-8 bytes of unchecked input.
+pub fn length(value: &str, kind: Kind) -> Result<usize, SequenceError> {
+    Ok(normalize(value, kind)?.len())
+}
+
+/// Mean GC probability with equal weight for the bases represented by each code.
+///
+/// All symbols contribute to the denominator. Empty sequences return zero by
+/// BioV's explicit convention. Sixths make the IUPAC weights exact until the
+/// final f64 division; a u128 sum cannot overflow for an addressable Rust string.
+pub fn weighted_gc_fraction(value: &str, kind: Kind) -> Result<f64, SequenceError> {
+    if kind == Kind::Protein {
+        return Err(SequenceError::NotNucleic);
+    }
+    let normalized = normalize(value, kind)?;
+    if normalized.is_empty() {
+        return Ok(0.0);
+    }
+    let sixths: u128 = normalized
+        .bytes()
+        .map(|symbol| match symbol {
+            b'G' | b'C' | b'S' => 6_u128,
+            b'A' | b'T' | b'U' | b'W' => 0,
+            b'R' | b'Y' | b'K' | b'M' | b'N' => 3,
+            b'B' | b'V' => 4,
+            b'D' | b'H' => 2,
+            _ => unreachable!("normalize accepts only the declared nucleotide alphabet"),
+        })
+        .sum();
+    Ok(sixths as f64 / (6.0 * normalized.len() as f64))
+}
+
+/// Compute validated lengths in stable batch order with nulls intact.
+pub fn length_batch(
+    values: &[Option<String>],
+    kind: Kind,
+) -> Result<Vec<Option<usize>>, SequenceError> {
+    values
+        .iter()
+        .map(|value| value.as_deref().map(|s| length(s, kind)).transpose())
+        .collect()
+}
+
+/// Compute weighted GC fractions in stable batch order with nulls intact.
+pub fn weighted_gc_fraction_batch(
+    values: &[Option<String>],
+    kind: Kind,
+) -> Result<Vec<Option<f64>>, SequenceError> {
+    if kind == Kind::Protein {
+        return Err(SequenceError::NotNucleic);
+    }
+    values
+        .iter()
+        .map(|value| {
+            value
+                .as_deref()
+                .map(|s| weighted_gc_fraction(s, kind))
+                .transpose()
+        })
+        .collect()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -193,5 +255,34 @@ mod tests {
             assert_eq!(reverse[2], Some(String::new()));
             assert_eq!(reverse[3], reverse[4]);
         }
+    }
+    #[test]
+    fn sequence_metrics() {
+        // Hand-derived GC probabilities for each IUPAC set in alphabet order.
+        let expected_sixths = [0, 6, 6, 0, 3, 3, 6, 0, 3, 3, 4, 2, 2, 4, 3];
+        for (symbol, weight) in "ACGTRYSWKMBDHVN".chars().zip(expected_sixths) {
+            assert_eq!(
+                weighted_gc_fraction(&symbol.to_string(), Kind::Dna).unwrap(),
+                weight as f64 / 6.0
+            );
+        }
+        assert_eq!(weighted_gc_fraction("GCN", Kind::Dna).unwrap(), 5.0 / 6.0);
+        assert_eq!(weighted_gc_fraction("GDVV", Kind::Dna).unwrap(), 2.0 / 3.0);
+        assert_eq!(weighted_gc_fraction("au", Kind::Rna).unwrap(), 0.0);
+        assert_eq!(weighted_gc_fraction("", Kind::Dna).unwrap(), 0.0);
+        assert_eq!(length("m*x", Kind::Protein).unwrap(), 3);
+        assert!(length("U", Kind::Dna).is_err());
+        assert!(length("ß", Kind::Protein).is_err());
+        assert!(weighted_gc_fraction("T", Kind::Rna).is_err());
+        assert!(weighted_gc_fraction_batch(&[], Kind::Protein).is_err());
+        let values = [None, Some("".into()), Some("gcN".into())];
+        assert_eq!(
+            length_batch(&values, Kind::Dna).unwrap(),
+            vec![None, Some(0), Some(3)]
+        );
+        assert_eq!(
+            weighted_gc_fraction_batch(&values, Kind::Dna).unwrap(),
+            vec![None, Some(0.0), Some(5.0 / 6.0)]
+        );
     }
 }

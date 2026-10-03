@@ -2,6 +2,8 @@
 
 from ._native import normalize_sequences as normalize_sequences
 from ._native import reverse_complements as reverse_complements
+from ._native import sequence_lengths as sequence_lengths
+from ._native import weighted_gc_fractions as weighted_gc_fractions
 from .alignment import align_paired_reads as align_paired_reads
 from .artifacts import Artifact as Artifact
 from .artifacts import artifact_capabilities as artifact_capabilities
@@ -37,5 +39,7 @@ __all__ = [
     "read_fasta",
     "read_gff3",
     "reverse_complements",
+    "sequence_lengths",
     "settings",
+    "weighted_gc_fractions",
 ]
