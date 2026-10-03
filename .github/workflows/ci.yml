@@ -125,16 +125,18 @@ jobs:
               *metadata["license-files"],
               *backend["source-include"],
           ]
+          # Python 3.12 treats a trailing ** as directories only. Expand
+          # recursive contents explicitly to match uv_build on every runner.
           selected = {"pyproject.toml", metadata["readme"]} | {
               path.as_posix()
               for pattern in patterns
-              for path in Path().glob(pattern)
+              for path in Path().glob(pattern + "/*" if pattern.endswith("/**") else pattern)
               if path.is_file()
           }
           excluded = {
               path.as_posix()
               for pattern in backend["source-exclude"]
-              for path in Path().glob(pattern)
+              for path in Path().glob(pattern + "/*" if pattern.endswith("/**") else pattern)
               if path.is_file()
           }
           expected = project & (selected - excluded)

@@ -9,6 +9,7 @@ import sys
 from pathlib import Path
 
 import pytest
+from click import unstyle
 from typer.testing import CliRunner
 
 from biov import environments, software
@@ -886,7 +887,10 @@ def test_failed_prepare_records_no_marker(monkeypatch, tmp_path):
 
 
 @pytest.mark.parametrize("tool", ["mafft", "conda:mafft"])
-def test_exec_no_install_never_touches_the_environment(monkeypatch, tmp_path, tool):
+@pytest.mark.parametrize("force_color", [False, True])
+def test_exec_no_install_never_touches_the_environment(
+    monkeypatch, tmp_path, tool, force_color
+):
     """--no-install skips installation and preparation and runs with --as-is."""
     manifest = write_manifest(tmp_path, prepare="git fetch uce")
     config = Settings.model_validate(
@@ -917,9 +921,19 @@ def test_exec_no_install_never_touches_the_environment(monkeypatch, tmp_path, to
         ]
     ]
     assert not preparation_records(tmp_path)
-    help_result = CliRunner().invoke(app, ["exec", "--help"])
+    help_result = CliRunner().invoke(
+        app,
+        ["exec", "--help"],
+        env={
+            "FORCE_COLOR": "1" if force_color else "",
+            "NO_COLOR": "" if force_color else "1",
+            "TERM": "xterm" if force_color else "dumb",
+        },
+    )
     assert help_result.exit_code == 0, help_result.output
-    assert "--no-install" in help_result.output
+    if force_color:
+        assert "\x1b[" in help_result.output
+    assert "--no-install" in unstyle(help_result.output)
 
 
 def test_no_install_missing_bundled_workspace_reports_setup(monkeypatch, tmp_path):
