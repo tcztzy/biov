@@ -1,0 +1,19 @@
+[package]
+name = "biov-data"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+[dependencies]
+biov-identifiers = { path = "../biov-identifiers" }
+polars = { version = "=0.51.0", default-features = false, features = ["csv", "ipc"] }
+serde = { version = "=1.0.229", features = ["derive"] }
+serde_json = "=1.0.151"
+schemars = "=1.2.2"
+sha2 = "=0.10.9"
+uuid = { version = "=1.27.0", features = ["v4"] }
+base64 = "=0.22.1"
+thiserror = "=2.0.21"
+tempfile = "=3.27.0"
+csv = "=1.4.0"

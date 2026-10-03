@@ -17,6 +17,8 @@ coordinates, units and complete data.
 - Work with genomic intervals and explicitly typed DNA, RNA and protein sequences
 - Run local managed Python analyses, retain complete outputs and records, and
   inspect bounded previews through Python, CLI or MCP
+- Open local CSV tables, query complete data with Rust Polars, and export/retrieve
+  Arrow IPC through the Python-free [native MCP slice](docs/guides/rust-datasets.md)
 - Use the migrated `crisprprimer`, `crisprprimer-docker`, `biov-azimuth` and
   paired-read alignment interfaces
 

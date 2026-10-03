@@ -116,3 +116,9 @@ jobs:
           cargo fmt --all -- --check
           cargo test --workspace --locked
           cargo clippy --workspace --all-targets --locked -- -D warnings
+      - name: Install native MCP binary and verify outside checkout
+        run: |
+          cargo install --locked --debug --path crates/biov-cli --root /tmp/biov-native
+          cd /tmp
+          /tmp/biov-native/bin/biov-rs --help
+          BIOV_TEST_BINARY=/tmp/biov-native/bin/biov-rs cargo test --manifest-path "$GITHUB_WORKSPACE/Cargo.toml" -p biov-cli --test mcp_stdio --locked

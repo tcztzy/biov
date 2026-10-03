@@ -1,0 +1,13 @@
+[package]
+name = "biov-identifiers"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+description = "Offline, explicitly scoped biological identifier contracts for BioV"
+
+[dependencies]
+serde = { version = "1", features = ["derive"] }
+
+[dev-dependencies]
+serde_json = "1"

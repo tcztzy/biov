@@ -1,5 +1,5 @@
 [workspace]
-members = ["crates/biov-core", "crates/biov-python"]
+members = ["crates/biov-core", "crates/biov-python", "crates/biov-identifiers", "crates/biov-data", "crates/biov-cli"]
 resolver = "2"
 
 [workspace.package]
@@ -11,3 +11,10 @@ license = "MIT"
 [workspace.dependencies]
 biov-core = { path = "crates/biov-core" }
 pyo3 = { version = "=0.26.0", features = ["abi3-py312"] }
+
+# Keep large scientific dependency builds practical on fresh machines.
+[profile.dev]
+debug = 0
+
+[profile.test]
+debug = 0
