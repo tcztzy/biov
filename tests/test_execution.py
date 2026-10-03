@@ -1,5 +1,6 @@
 """Acceptance tests for whole-script local and LSF execution."""
 
+import json
 import subprocess
 import sys
 from pathlib import Path
@@ -8,8 +9,8 @@ from types import SimpleNamespace
 import pytest
 from typer.testing import CliRunner
 
-import biov.cli as cli
 import biov.execution as execution_module
+from biov import cli
 from biov.execution import (
     LSF_SUBMISSION_TIMEOUT_SECONDS,
     ExecutionSubmissionError,
@@ -224,3 +225,40 @@ def test_lsf_cli_says_submitted_not_completed(
     assert "Submitted LSF job 4321" in result.stdout
     assert "not completed" in result.stdout
     assert "completed successfully" not in result.stdout
+
+
+def test_analysis_cli_preserves_failure_but_status_query_succeeds(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """Report a failed analysis without turning its readable record into an error."""
+    from biov import analysis
+
+    request = tmp_path / "request.json"
+    request.write_text(
+        json.dumps(
+            {
+                "name": "failing example",
+                "environment": "python",
+                "code": "raise ValueError('bad input')",
+                "outputs": {"result.csv": "csv"},
+            }
+        )
+    )
+    failure = {"record": "file:///saved/record.json", "status": "failed"}
+    monkeypatch.setattr(analysis, "run_analysis", lambda request: failure)
+    monkeypatch.setattr(analysis, "inspect_analysis", lambda record: failure)
+
+    run = CliRunner().invoke(cli.app, ["analyze", str(request)])
+    query = CliRunner().invoke(cli.app, ["inspect-analysis", failure["record"]])
+    assert run.exit_code == 1
+    assert query.exit_code == 0
+    assert json.loads(run.stdout) == json.loads(query.stdout) == failure
+
+
+def test_analysis_cli_rejects_invalid_request_before_launch(tmp_path: Path) -> None:
+    """Invalid JSON cannot create an analysis or be reported as program failure."""
+    request = tmp_path / "request.json"
+    request.write_text('{"unknown": true}')
+    result = CliRunner().invoke(cli.app, ["analyze", str(request)])
+    assert result.exit_code == 2
+    assert "validation" in result.stderr.lower()

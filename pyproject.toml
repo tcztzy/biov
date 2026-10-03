@@ -1,39 +1,74 @@
 [project]
 name = "biov"
 version = "0.1.2"
-description = "Next-generation development experience for computational molecular biology."
+description = "High-performance bioinformatics infrastructure for AI agents."
 readme = "README.md"
+license = "MIT"
+license-files = ["LICENSE"]
 authors = [
     { name = "Tang Ziya", email = "tcztzy@gmail.Com" }
 ]
 requires-python = ">=3.12"
 dependencies = [
     "biopython>=1.88",
-    "fsspec[full]>=2026.7.0",
+    "certifi>=2026.7.22",
+    "fsspec[full]>=2026.9.0",
+    "lxml>=5.4.0",
     "mcp>=2.2.0",
     "numpy>=2.5.3",
-    "pandas>=3.0.5",
+    "pandas>=3.0.6",
+    "platformdirs>=4.12.1",
+    "pyarrow>=25.0.1",
     "pydantic>=2.13.5",
     "pydantic-settings>=2.15.0",
+    "pysam>=0.23.0",
     "ruranges>=0.2.7",
     "typeguard>=4.6.0",
     "typer>=0.27.2",
 ]
 
+[project.urls]
+Homepage = "https://github.com/tcztzy/biov"
+Repository = "https://github.com/tcztzy/biov"
+Documentation = "https://tcztzy.github.io/biov/"
+
 [project.scripts]
 biov = "biov.cli:app"
-blat = "biov.executables:blat_app"
+biov-azimuth = "biov.azimuth:main"
+crisprprimer = "crisprprimer.__main__:run"
+crisprprimer-docker = "crisprprimer.docker:main"
+
+[project.entry-points."fsspec.specs"]
+encode = "biov.filesystem:BioVFileSystem"
+"refseq.gcf" = "biov.filesystem:BioVFileSystem"
+"uniprot" = "biov.filesystem:BioVFileSystem"
+"pubmed" = "biov.filesystem:BioVFileSystem"
+"clinvar" = "biov.filesystem:BioVFileSystem"
+"dbsnp" = "biov.filesystem:BioVFileSystem"
+"geo" = "biov.filesystem:BioVFileSystem"
+"pdb" = "biov.filesystem:BioVFileSystem"
+"chembl.compound" = "biov.filesystem:BioVFileSystem"
+"pubchem.compound" = "biov.filesystem:BioVFileSystem"
+"ensembl" = "biov.filesystem:BioVFileSystem"
+"arxiv" = "biov.filesystem:BioVFileSystem"
+"emdb" = "biov.filesystem:BioVFileSystem"
+"clinicaltrials" = "biov.filesystem:BioVFileSystem"
+"dailymed" = "biov.filesystem:BioVFileSystem"
+"reactome" = "biov.filesystem:BioVFileSystem"
 
 [build-system]
-requires = ["hatchling"]
-build-backend = "hatchling.build"
+requires = ["uv_build>=0.12.9,<0.13"]
+build-backend = "uv_build"
 
-[tool.hatch.build.targets.wheel]
-packages = ["src/biov"]
+[tool.uv.build-backend]
+module-name = ["biov", "crisprprimer"]
+source-include = ["docs/**", "tests/**", "mkdocs.yml", "scripts/gen_ref_pages.py"]
+# Plugin source and its tests are distributed through Git.
+source-exclude = ["tests/test_plugin_distribution.py", "docs/**/.pixi/**"]
 
 [dependency-groups]
 dev = [
-    "prek>=0.5.0",
+    "prek>=0.5.4",
     { include-group = "docs" },
     { include-group = "test" },
 ]
@@ -54,7 +89,10 @@ target-version = "py312"
 [tool.ruff.lint]
 preview = true
 extend-select = ["D", "DOC", "I", "PD", "S", "T20", "TID251", "UP"]
-ignore = ["FA100", "FA102"]
+
+[tool.ruff.lint.per-file-ignores]
+# Tests assert, and deliberately spawn subprocesses.
+"tests/**" = ["S101", "S404", "S603"]
 
 [tool.ruff.lint.flake8-tidy-imports.banned-api]
 "__future__.annotations" = { msg = "Python 3.12 project: do not postpone annotations" }

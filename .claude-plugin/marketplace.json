@@ -1,0 +1,13 @@
+{
+  "name": "biov",
+  "owner": { "name": "Tang Ziya" },
+  "description": "BioV biological data, software execution, and task skills for AI agents.",
+  "plugins": [
+    {
+      "name": "biov",
+      "source": "./",
+      "description": "Biological data and scientific task skills with the BioV MCP server.",
+      "category": "research"
+    }
+  ]
+}

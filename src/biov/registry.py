@@ -14,11 +14,16 @@ from urllib.request import Request, urlopen
 
 from pydantic import TypeAdapter, ValidationError
 
+from .capabilities import load_capabilities
+
 REGISTRY_DATASET_URL = (
     "https://registry.api.identifiers.org/resolutionApi/getResolverDataset"
 )
 REGISTRY_ASSET_NAME = "identifiers_org_registry.json"
-DATA_RESOURCE_NAMESPACE_PREFIXES = frozenset({"refseq.gcf", "uniprot"})
+# The packaged dataset is ~2 MB; this bounds an unbounded or replaced upstream.
+_MAX_REGISTRY_BYTES = 64 * 1024 * 1024
+DATA_RESOURCE_NAMESPACE_PREFIXES = frozenset(load_capabilities()["namespaces"])
+
 URI_ACCESSION_SAFE = "/:;,@!$&'*+=~"
 
 RegistryResponse = dict[str, Any]
@@ -150,7 +155,8 @@ def fetch_registry(*, timeout: float = 60) -> bytes:
         Unmodified HTTP response body.
 
     Raises:
-        ValueError: If the timeout is not positive.
+        ValueError: If the timeout is not positive, or the body exceeds the
+            fixed registry bound.
     """
     if timeout <= 0:
         raise ValueError("timeout must be greater than zero")
@@ -162,7 +168,10 @@ def fetch_registry(*, timeout: float = 60) -> bytes:
         },
     )
     with urlopen(request, timeout=timeout) as response:  # noqa: S310
-        return response.read()
+        raw = response.read(_MAX_REGISTRY_BYTES + 1)
+    if len(raw) > _MAX_REGISTRY_BYTES:
+        raise ValueError("identifiers.org registry dataset is too large")
+    return raw
 
 
 def _write_asset_atomically(content: bytes, output: Path) -> None:

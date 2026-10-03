@@ -5,26 +5,27 @@ repos:
     rev: v6.0.0
     hooks:
     -   id: trailing-whitespace
-        exclude: renv/activate.R
+        # Preserve the upstream GenBank fixture byte for byte.
+        exclude: ^(renv/activate\.R|tests/data/cor6_6\.gb)$
     -   id: end-of-file-fixer
         # Machine-managed upstream response body; bytes must stay identical to
-        # what `biov update-identifiers-registry` writes (SPEC V26/V46).
-        exclude: ^src/biov/assets/identifiers_org_registry\.json$
+        # what `biov update` writes (SPEC V26/V46). Preserve the GenBank fixture too.
+        exclude: ^(src/biov/assets/identifiers_org_registry\.json|tests/data/cor6_6\.gb)$
     -   id: check-yaml
     -   id: check-added-large-files
-        exclude: ^src/biov/assets/identifiers_org_registry\.json$
+        exclude: ^(src/biov/assets/identifiers_org_registry\.json|uv\.lock|src/biov/assets/environments/pixi\.lock)$
 -   repo: https://github.com/astral-sh/ruff-pre-commit
     rev: v0.16.5
     hooks:
     -   id: ruff
         args: [--fix]
-        exclude: tests/.+\.py$
     -   id: ruff-format
 -   repo: https://github.com/astral-sh/ty-pre-commit
     # ty version.
     rev: v0.0.75
     hooks:
     -   id: ty
+        args: [--isolated]
 -   repo: https://github.com/pre-commit/mirrors-mypy
     rev: v2.3.1
     hooks:

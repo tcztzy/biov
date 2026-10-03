@@ -1,0 +1,10 @@
+{
+  "name": "biov",
+  "version": "0.1.2",
+  "description": "Biological data access, scientific software execution, and task skills for AI agents. Requires the BioV command on PATH.",
+  "author": { "name": "Tang Ziya" },
+  "homepage": "https://github.com/tcztzy/biov",
+  "repository": "https://github.com/tcztzy/biov",
+  "skills": "./skills/",
+  "mcpServers": "./.mcp.json"
+}

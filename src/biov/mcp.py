@@ -2,14 +2,19 @@
 
 import json
 import re
+import subprocess  # noqa: S404 - only exception types
 from collections.abc import Awaitable, Callable
+from functools import partial, wraps
+from pathlib import Path
 from typing import cast
 
 from anyio.to_thread import run_sync
 from mcp.server import MCPServer
 from mcp.server.lowlevel.helper_types import ReadResourceContents
 from mcp.server.mcpserver.exceptions import ResourceError, ToolError
+from mcp.server.mcpserver.resources.templates import ResourceSecurity
 from mcp.types import (
+    CallToolResult,
     EmbeddedResource,
     ResourceLink,
     TextContent,
@@ -17,9 +22,19 @@ from mcp.types import (
     ToolAnnotations,
 )
 
+from .analysis import (
+    AnalysisRequest,
+    read_analysis_file,
+)
+from .analysis import (
+    inspect_analysis as inspect_saved_analysis,
+)
+from .analysis import (
+    run_analysis as execute_analysis,
+)
 from .artifacts import (
     Artifact,
-    ArtifactError,
+    artifact_capabilities,
     genome_summary,
     path,
 )
@@ -44,6 +59,25 @@ ArtifactPath = Callable[..., Artifact]
 DataReader = Callable[[str], str]
 
 
+def _resource_errors[**P, T](
+    handler: Callable[P, Awaitable[T]],
+) -> Callable[P, Awaitable[T]]:
+    """Expose expected provider failures at the MCP boundary only.
+
+    Returns:
+        Handler using the SDK error type for expected provider failures.
+    """
+
+    @wraps(handler)
+    async def call(*args: P.args, **kwargs: P.kwargs) -> T:
+        try:
+            return await handler(*args, **kwargs)
+        except (OSError, ValueError, RuntimeError, subprocess.SubprocessError) as error:
+            raise ResourceError(str(error)) from error
+
+    return call
+
+
 def _json_text(value: object) -> str:
     """Serialize one native upstream JSON value for MCP text transport.
 
@@ -51,6 +85,26 @@ def _json_text(value: object) -> str:
         Indented UTF-8 JSON text without changing its data model.
     """
     return json.dumps(value, ensure_ascii=False, indent=2)
+
+
+def _analysis_error(error: OSError | ValueError, stage: str) -> CallToolResult:
+    """Describe an expected analysis boundary error without hiding its status.
+
+    Returns:
+        A bounded diagnostic with explicit MCP tool-error semantics.
+    """
+    diagnostic = str(error)
+    if len(diagnostic) > 4096:
+        diagnostic = diagnostic[:4096] + "… (truncated)"
+    return CallToolResult(
+        content=[],
+        structured_content={
+            "status": "failed",
+            "stage": stage,
+            "diagnostic": diagnostic,
+        },
+        is_error=True,
+    )
 
 
 def _compact_identifier(
@@ -90,17 +144,11 @@ def _data_resource_handler(
         Asynchronous handler for one provider accession.
     """
 
+    @_resource_errors
     async def read_data(accession: str) -> str:
-        """Return the provider-native canonical JSON representation.
-
-        Raises:
-            ResourceError: If validation or artifact access fails.
-        """
+        """Return the provider-native canonical JSON representation."""
         _validate_accession(namespace, accession)
-        try:
-            return await run_sync(reader, accession)
-        except ArtifactError as error:
-            raise ResourceError(str(error)) from error
+        return await run_sync(reader, accession)
 
     return read_data
 
@@ -144,7 +192,7 @@ def create_mcp_server(
         refseq_reader: Optional NCBI genome-summary reader.
 
     Returns:
-        Configured server with data and identifiers.org resources plus tools.
+        Configured server with data descriptions, identifier resources, and tools.
     """
     resolve = resolver or resolve_identifier
     resource_path = artifact_path or path
@@ -153,16 +201,38 @@ def create_mcp_server(
     server = MCPServer(
         name="biov",
         title="BioV",
-        description="LLM-native molecular biology resources",
+        description="Biological data and managed analysis for AI agents",
         instructions=(
             "Call parse_identifiers with prompts containing biological IDs. "
-            "Read refseq.gcf:// and uniprot:// resources for canonical upstream "
-            "data. Read identifiers://<registry> for native registry metadata and "
+            "Read refseq.gcf://, uniprot://, pubmed://, clinvar://, dbsnp://, "
+            "and geo:// resources for upstream data. Read identifiers://<registry> "
+            "for native registry metadata and "
             "identifiers://<registry>:<id> for native resolver JSON. Tool-only "
-            "clients can pass any returned resource URI to resolve_identifiers. "
-            "Generated Python should pass biov.path(uri) to libraries accepting "
+            "clients can pass identifier "
+            "resource URIs to resolve_identifiers. "
+            "For RefSeq and UniProt files, generated Python should pass "
+            "biov.path(uri) to libraries accepting "
             "os.PathLike, or use biov.open(uri, mode='rb' or 'rt') when a readable "
-            "file object is required. Call both only inside the execution environment."
+            "file object is required. Call both only inside the execution environment. "
+            "Other identifier resources describe downloadable analysis files and "
+            "their formats. Use biov.path, biov.open, or fsspec.open on their URI "
+            "inside the execution environment to obtain the file. "
+            "Call run_analysis with a complete ordinary Python script, named "
+            "inputs, declared outputs and a configured locked Pixi environment "
+            "to execute an analysis directly through MCP. Reuse complete output "
+            "file references as subsequent inputs, never preview rows. Call "
+            "inspect_analysis with the returned record to inspect saved facts; "
+            "unknown status must not trigger automatic resubmission. Managed "
+            "file resources return at most 1 MiB; use an output's download_url "
+            "for larger files and verify its byte size and SHA-256. File URIs "
+            "refer to this server's storage, not the client's filesystem. "
+            "The BioV plugin includes biological-data, scientific-software, and "
+            "task-specific skills; load their instructions and references on demand "
+            "through the host's skill mechanism. Use scientific-software for the "
+            "software environment and execution instructions. Run scripts or native "
+            "commands with biov exec COMMAND ARGS... through the host's terminal "
+            "tool. Execution environments are configured separately; a listed "
+            "software package is not necessarily installed."
         ),
     )
 
@@ -171,17 +241,11 @@ def create_mcp_server(
 
         Returns:
             Original provider JSON text.
-
-        Raises:
-            ArtifactError: If reading the artifact fails.
         """
         artifact = resource_path(f"uniprot://{accession}", artifact="entry_json")
-        try:
-            return artifact.path.read_text(encoding="utf-8")
-        except (OSError, UnicodeError) as error:
-            raise ArtifactError("Could not read uniprot artifact JSON") from error
+        return artifact.path.read_text(encoding="utf-8")
 
-    for prefix, description, reader in (
+    readers = [
         (
             "refseq.gcf",
             (
@@ -195,7 +259,35 @@ def create_mcp_server(
             "Return the complete original UniProtKB REST JSON for one accession.",
             read_uniprot_json,
         ),
-    ):
+    ]
+
+    def describe_file(accession: str, prefix: str) -> str:
+        """Return available representations for one locally validated file ID."""
+        capability = artifact_capabilities()["namespaces"][prefix]
+        return _json_text(
+            {
+                "uri": build_namespace_resource_uri(namespaces[prefix], accession),
+                "default_kind": capability["default_kind"],
+                "representations": {
+                    kind: {
+                        key: value for key, value in properties.items() if key != "url"
+                    }
+                    for kind, properties in capability["kinds"].items()
+                },
+            }
+        )
+
+    readers.extend(
+        (
+            prefix,
+            "Describe the analysis file; open its URI through BioV or fsspec.",
+            partial(describe_file, prefix=prefix),
+        )
+        for prefix in sorted(
+            DATA_RESOURCE_NAMESPACE_PREFIXES - {"refseq.gcf", "uniprot"}
+        )
+    )
+    for prefix, description, reader in readers:
         namespace = namespaces[prefix]
         server.resource(
             f"{namespace['prefix']}://{{+accession}}",
@@ -221,20 +313,18 @@ def create_mcp_server(
         ),
         mime_type="application/json",
     )
+    @_resource_errors
     async def read_identifier(registry: str, id: str) -> str:
         """Return the official resolver JSON for one registry-local ID.
 
         Raises:
-            ResourceError: If validation or identifiers.org resolution fails.
+            ResourceError: If registry or accession validation fails.
         """
         namespace = namespaces.get(registry.casefold())
         if namespace is None:
             raise ResourceError(f"Unknown identifiers.org registry {registry!r}")
         _validate_accession(namespace, id)
-        try:
-            resolution = await resolve(_compact_identifier(namespace, id))
-        except (IdentifierNotFoundError, IdentifierServiceError) as error:
-            raise ResourceError(str(error)) from error
+        resolution = await resolve(_compact_identifier(namespace, id))
         return _json_text(resolution)
 
     @server.resource(
@@ -264,7 +354,7 @@ def create_mcp_server(
         description=(
             "Extract identifiers.org Compact Identifiers, identifiers.org URLs, "
             "BioV resource URIs, and allowlisted unambiguous bare IDs from a prompt; "
-            "validate them and return MCP resource links."
+            "validate them and return a JSON summary with MCP resource links."
         ),
         annotations=ToolAnnotations(
             read_only_hint=True,
@@ -273,6 +363,7 @@ def create_mcp_server(
             open_world_hint=True,
         ),
     )
+    @_resource_errors
     async def parse_identifiers(prompt: str) -> list[TextContent | ResourceLink]:
         """Return resource links for resolver-valid identifiers in a prompt.
 
@@ -280,7 +371,7 @@ def create_mcp_server(
             prompt: Complete prompt to scan for explicit identifiers.
 
         Returns:
-            A summary followed by resource links, or a no-match message.
+            A JSON summary followed by resource links.
 
         Raises:
             ToolError: If identifiers.org cannot validate candidates.
@@ -293,18 +384,13 @@ def create_mcp_server(
                 namespace_prefix, local_id = _parsed_identifier(resolution)
             except IdentifierNotFoundError:
                 continue
-            except IdentifierServiceError as error:
-                raise ToolError(str(error)) from error
             namespace = namespaces.get(namespace_prefix.casefold())
             if namespace is None:
                 raise ToolError(
                     f"Resolver namespace {namespace_prefix!r} is absent from the "
                     "packaged identifiers.org registry asset"
                 )
-            try:
-                _validate_accession(namespace, local_id)
-            except ResourceError as error:
-                raise ToolError(str(error)) from error
+            _validate_accession(namespace, local_id)
             resource_uri = build_namespace_resource_uri(namespace, local_id)
             if resource_uri in linked_uris:
                 continue
@@ -330,10 +416,13 @@ def create_mcp_server(
                 )
             )
 
-        if not links:
-            return [TextContent(text="No resolver-valid identifiers.org IDs found.")]
         summary = TextContent(
-            text=f"Found {len(links)} resolver-valid identifiers.org ID(s)."
+            text=_json_text(
+                {
+                    "count": len(links),
+                    "resource_uris": [str(link.uri) for link in links],
+                }
+            )
         )
         return [summary, *links]
 
@@ -341,7 +430,7 @@ def create_mcp_server(
         name="resolve_identifiers",
         title="Read an identifier resource",
         description=(
-            "Read a refseq.gcf://, uniprot://, or identifiers:// resource URI and "
+            "Read an identifier resource URI and "
             "return its content as an embedded resource for tool-only MCP clients."
         ),
         annotations=ToolAnnotations(
@@ -378,6 +467,85 @@ def create_mcp_server(
                 _meta=item.meta,
             )
         )
+
+    @server.tool(
+        name="run_analysis",
+        title="Run a managed analysis",
+        description=(
+            "Run a complete Python script in a declared locked Pixi environment "
+            "on this server. Save complete outputs and execution records, and "
+            "return bounded previews with reusable file references. The script "
+            "receives inputs.json and parameters.json as arguments."
+        ),
+        annotations=ToolAnnotations(
+            read_only_hint=False,
+            destructive_hint=True,
+            idempotent_hint=False,
+            open_world_hint=True,
+        ),
+    )
+    async def run_analysis(request: AnalysisRequest) -> CallToolResult:
+        """Execute one analysis and preserve tool-error semantics for failure.
+
+        Returns:
+            Bounded structured result, with failed runs marked as tool errors.
+        """
+        try:
+            summary = await run_sync(execute_analysis, request)
+        except (OSError, ValueError) as error:
+            return _analysis_error(error, "launch")
+        return CallToolResult(
+            content=[],
+            structured_content=summary,
+            is_error=summary["status"] == "failed",
+        )
+
+    @server.tool(
+        name="inspect_analysis",
+        title="Inspect a saved analysis",
+        description=(
+            "Read a saved analysis record and bounded previews without executing "
+            "or resubmitting it. A failed analysis is a successful status query."
+        ),
+        annotations=ToolAnnotations(
+            read_only_hint=True,
+            destructive_hint=False,
+            idempotent_hint=True,
+            open_world_hint=False,
+        ),
+    )
+    async def inspect_analysis(record: str) -> CallToolResult:
+        """Read persisted facts without treating a failed run as a failed query.
+
+        Returns:
+            Bounded structured result or an explicit record-access error.
+        """
+        try:
+            summary = await run_sync(inspect_saved_analysis, record)
+        except (OSError, ValueError) as error:
+            return _analysis_error(error, "data_checks")
+        return CallToolResult(content=[], structured_content=summary)
+
+    @server.resource(
+        "file://{+path}",
+        name="read_analysis_file",
+        title="Saved analysis file",
+        description=(
+            "Read a registered analysis output, record or log of at most 1 MiB. "
+            "Only files in the configured analysis root are accessible."
+        ),
+        mime_type="application/octet-stream",
+        security=ResourceSecurity(reject_absolute_paths=False),
+    )
+    @_resource_errors
+    async def read_saved_file(path: str) -> bytes:
+        """Return the complete bytes of one validated managed file.
+
+        Returns:
+            Original file bytes after the core's identity and size checks.
+        """
+        content, _mime_type = await run_sync(read_analysis_file, Path(path).as_uri())
+        return content
 
     return server
 

@@ -1,7 +1,19 @@
 # SPEC
 
+§I and §V describe current interfaces and contracts. §D describes the accepted
+design; §T tracks its implementation and validation. Supported scope is stated
+explicitly rather than inferred from the broader design.
+
 ## §G GOAL
-Own interval/sequence APIs; expose persistent-ID discovery, environment-local biological artifacts & whole-script execution to LLMs without wrapping analysis libraries.
+Build high-performance bioinformatics infrastructure for LLM agents, with one
+MCP entry point for biological data and analysis. Users work with data and
+analyses; results remain data that the next analysis can use. Preserve complete
+data while showing agents bounded, understandable previews. Provide reusable
+data access, interval/sequence APIs and execution through Python and CLI as well,
+without requiring an agent or model. Use established scientific software for
+computation. Skills guide method selection and interpretation; repeatable data
+handling and checks belong in code. Task-specific orchestration and biological
+interpretation remain with the agent or workflow using BioV.
 
 ## §C CONSTRAINTS
 - Python `>=3.12`; RuRanges only interval kernel; Biopython only sequence-algorithm backend
@@ -10,12 +22,116 @@ Own interval/sequence APIs; expose persistent-ID discovery, environment-local bi
 - public behavior ! documented & acceptance-tested
 - identifiers.org input = explicit Compact Identifier, identifiers.org URI, or BioV resource URI; bare ID inference ! curated unambiguous namespace allowlist; ⊥ registry-wide schema stripping
 - identifiers.org resolution access ! fixed to `https://resolver.api.identifiers.org`; MCP transport = stdio
-- MCP schemes = data-backed `refseq.gcf|uniprot` + generic `identifiers`; ⊥ per-registry schemes or `identifiers://resolve/{+compact_id}` compatibility
-- BioV integration scales by identifier namespace × artifact kind; ⊥ wrappers for Biopython/other analysis functions
+- Identifier-backed MCP schemes = file namespaces declared by the artifact manifest + generic `identifiers`
+- Provider-data integration scales by identifier namespace × artifact kind; reuse native APIs and commands, with format conversion and input/output checks where needed; ⊥ replacement scientific algorithms or per-function MCP wrappers
 - generated analysis ! use ordinary ecosystem APIs; complete script executes in selected local|LSF environment so concrete storage paths never cross executor boundary
 - RefSeq assembly path resolution ! official `datasets download genome accession` CLI with `--include gff3,rna,cds,protein,genome,seq-report`; extracted data package structure ! preserved verbatim
 - RefSeq MCP metadata ! official `datasets summary genome accession` JSON stdout; ⊥ artifact path resolution, package download/extraction or cache write
-- UniProt path resolution ! official full-entry `.json` and protein `.fasta` responses cached independently on demand; bytes & accession filenames ! preserved; ⊥ field-filtered metadata or implicit PDB/AlphaFold selection
+- UniProt path resolution ! official full-entry `.json` and protein `.fasta` cached independently; explicit `alphafold_cif` selects exactly one official predicted model; no implicit structure selection
+
+## §D ACCEPTED DESIGN
+
+D1: Users select data and an analysis, then inspect or reuse its results. The
+MCP server provides analysis execution and result access using shared
+Python/CLI logic; the client need not supply a terminal tool. Routine analysis
+does not require users to choose package managers, cache paths or URI schemes.
+Deployment configuration remains operator-owned; analysis execution is distinct
+from the deployment-management tools excluded by V64.
+
+D2: Each supported analysis declares its inputs, outputs and the metadata needed
+to use them correctly. These requirements are inspectable by the caller and
+distinguish fixed checks enforced in code from judgments left to the researcher.
+Analysis operates on complete data and preserves complete outputs in suitable
+native formats. Results have readable, unambiguous names. A result reference
+identifies a saved output in its execution or storage context and can be passed
+to the next analysis; preview rows are never substituted for the full input.
+Missing, inaccessible or identity-mismatched results fail explicitly, without
+silent recomputation, substitution or empty results. Use ordinary files and
+existing storage references, without adding an analysis-specific URI scheme;
+this does not exclude MCP resources using existing schemes.
+Define and test how the supported client inspects, reuses and retrieves complete
+results, including files exceeding a single-response limit, without assuming a
+shared filesystem. Use existing storage or explicit transfer where needed; an
+executor-only path is insufficient if the client cannot access it. Data may stay
+on the execution host until requested; a preview need not transfer the full file.
+Explicit retrieval is separate from exec's no-automatic-transfer rule (V65).
+Save outputs and records at a documented location that persists across service
+restarts, not solely in a disposable cache; run responses identify that location
+once created. Reruns and downstream steps must not silently overwrite saved
+results. Retain independently reusable outputs and records from completed steps
+that passed their declared checks when a later step fails. Incomplete outputs
+may be retained for diagnosis but are not presented as completed results.
+Previews and records stay separate from original provider files and metadata;
+existing identifier-resource contracts remain unchanged.
+
+D3: Default analysis responses show the inputs, method, key conditions, bounded
+result previews, checks performed and unresolved problems. Table previews include
+column names/types, known dimensions and the first rows in the stated order;
+requested filtering/sorting and omitted content are explicit. Limit both rows and
+total response size, including long cells and diagnostics. Unknown totals remain
+unknown rather than requiring a full scan for display. Non-tabular data retain
+their native format and use appropriate summaries. Complete results and logs
+remain accessible on demand; raw stdout/stderr do not become unbounded responses
+or corrupt the MCP transport. Structured output alone is not a context-size limit.
+Preview limits are independent of `BIOV_MAX_FILE_BYTES`, which limits downloaded
+or decompressed files.
+
+D4: Analysis readiness means satisfying the next operation's specific input
+requirements, including reference version, coordinates, units and sample identity
+where applicable. Coordinate conventions come from the declared native format
+where unambiguous, otherwise from explicit metadata; test conversions and reject
+incompatible reference versions where applicable. Skills guide method choice and
+interpretation; supported format conversions and fixed checks use repeatable
+code. Use reliable biological metadata and record applicable defaults; ask only
+when unresolved choices affect the scientific question or interpretation.
+Submission, execution completion, validation and QC outcomes are reported
+separately and do not establish a scientific conclusion.
+Calls may return results directly within supported client limits; work continuing
+after a call returns needs a durable receipt for checking status and obtaining
+results. Persist launch intent before attempting execution; record submission or
+startup only after confirmation. Persist confirmed receipts and status so that
+run records remain queryable after an MCP server restart; this does not imply
+that execution itself survives. If interrupted before confirmation is saved,
+preserve known facts and report unknown status without automatic resubmission.
+Reuse protocol/executor facilities after verifying client support, without a
+custom job protocol. Analysis responses expose known execution status and failure
+stage (connection, launch, program or data checks) in stable structured fields,
+retaining original diagnostics. Preserve MCP protocol/tool error semantics; a
+successful status query may report a failed analysis. Connection loss or inability
+to confirm status does not prove task failure and must not trigger automatic
+resubmission of an unconfirmed run.
+An inspectable analysis record retains the actual inputs and outputs, code or
+command, parameters, available data/software versions and environment identity,
+and logs. Record input locations, byte sizes and content identities for all
+sources, including local files and identifier-backed data; a path or unversioned
+accession alone does not fix content. Reuse verified checksums or immutable
+content versions where available; otherwise compute a digest. Establish input
+stability for the supported analysis: a pre-run digest is not a snapshot or proof
+that execution consumed the same bytes. Unverified consistency must be reported
+and cannot count as a passed check. Output digests are required where reuse
+depends on verifying unchanged bytes, rather than universally for every format.
+Distinguish unavailable information from fields that do not apply; the executor
+does not invent scientific metadata or infer QC success from an exit code.
+
+D5: Start with one representative two-step analysis in a configured environment,
+reusing the existing Pixi manifests, locks, execution code and mature format
+readers. This first locked Pixi analysis records the selected environment,
+manifest and lock digests, actual execution-host Pixi and BioV versions, full
+command arguments, working directory and executed code or script content where
+applicable. These runtime details supplement biological metadata; Pixi-specific
+fields do not become requirements for other execution methods. Inputs may be
+local files or identifier-backed data; database retrieval is not a prerequisite.
+The second step must consume the first step's complete output, including records
+omitted from its preview. Verify real inputs and expected outputs before claiming
+support. Running an arbitrary program does not establish that its results can be
+interpreted or used by another analysis. Extend validated input/output handling
+as needed; do not start with a workflow editor, custom query language, new
+user-facing type system, persistent kernel or automatic execution-backend
+switching. T51 fixes concrete MCP tool/result fields, input requirements, reference
+context, each output's summary, input stability, retention and retrieval limits,
+and interruption behavior in acceptance cases before T52 implementation. Reuse
+existing API and format definitions where sufficient; a separate declaration
+format, reference encoding or record layout is not prescribed.
 
 ## §I INTERFACES
 - api: `BioDataFrame.overlap(other, how, seqid_col, start_col, end_col, strand_col)` → selected self rows
@@ -26,17 +142,26 @@ Own interval/sequence APIs; expose persistent-ID discovery, environment-local bi
 - accessor: `Series.seq.length` → nullable integer Series
 - accessor: DNA/RNA `Series.seq.reverse_complement()` | `gc_fraction()` | `translate(table=1, to_stop=False)`
 - accessor: protein `Series.seq.molecular_weight()` | `isoelectric_point()` → nullable float Series; `amino_acid_composition()` → 20-column percentage DataFrame
-- resource: `refseq.gcf://{+accession}` → original NCBI genome-summary JSON; `uniprot://{+accession}` → original complete UniProtKB JSON
+- resource: `refseq.gcf://{+accession}` → original NCBI genome-summary JSON; `uniprot://{+accession}` → original complete UniProtKB JSON; other supported data namespaces → JSON file description (`uri`, `default_kind`, `representations`), without file download
 - resource: `identifiers://{registry}` → native registry namespace object; `identifiers://{registry}:{+id}` → native resolver JSON
-- tool: `parse_identifiers(prompt)` → ordered unique MCP resource links for resolver-valid explicit IDs, BioV resource URIs & allowlisted bare IDs
+- api: `artifact_capabilities()` → independent JSON-compatible copy of supported namespaces, provider names, artifact kinds, defaults, and representation fields; no network or artifact-cache I/O
+- file: `src/biov/assets/artifact_capabilities.json` → versioned single source for supported namespace/kind pairs, defaults, fixed file operations, and NCBI `fileType` selections
+- tool: `parse_identifiers(prompt)` → JSON summary and ordered unique MCP resource links for resolver-valid explicit IDs, BioV resource URIs & allowlisted bare IDs
 - tool: `resolve_identifiers(uri)` → the same resource content as a standard MCP embedded resource for tool-only clients
 - cmd: `biov mcp` → BioV MCP server over stdio; ⊥ standalone `biov-mcp`
-- cmd: `biov update-identifiers-registry` → fetch & atomically refresh the packaged registry asset
+- api: `biov.analysis.run_analysis(AnalysisRequest)` → recorded synchronous Python analysis in a declared local Pixi environment; `inspect_analysis(record)` → bounded saved facts without resubmission
+- tool: `run_analysis(request)` and `inspect_analysis(record)` → the same managed analysis path and structured summaries; failed runs retain MCP tool-error semantics, while querying a failed run can succeed
+- resource: `file://{+path}` → complete registered analysis output, record or diagnostic bytes, subject to a 1 MiB resource-response cap and execution-root/identity checks
+- cmd: `biov analyze REQUEST.json` and `biov inspect-analysis RECORD` → shared analysis execution and record inspection
+- config: `BIOV_ANALYSIS_ROOT` → persistent outputs under the platform user data directory by default; optional `BIOV_ANALYSIS_BASE_URL` → existing HTTP(S) storage prefix for complete client downloads
+- file: `docs/guides/analysis.md` → first two-step acceptance contract and verified client/platform scope; `docs/examples/sequence-analysis/` → ordinary scientific scripts and their native Pixi manifest/lock
+- cmd: `biov update` → fetch & atomically refresh the packaged registry asset
 - file: `src/biov/assets/identifiers_org_registry.json` → original complete resolver-dataset JSON response body
-- script: `scripts/update_identifiers_registry.py` → fetch, validate & atomically replace raw registry asset
 - api: `parse_identifier(value)` → exact single `IdentifierRef`; same generated URI, Compact ID, identifiers.org URL & curated bare-ID syntax as prompt parser
 - api: `path(identifier, artifact=None)` → namespace-default environment-local immutable `Artifact` implementing `os.PathLike[str]`
 - api: `open(identifier, artifact=None, mode="rb")` → handle for cached artifact
+- fsspec: every manifest namespace has an installed read-only `BioVFileSystem` entry point; full identifier URIs retain namespace and select the same file as `path`; `artifact` is a filesystem/storage option
+- api: `read_fasta(uri)` → existing dictionary of sequence records; `read_gff3(uri, storage_options={"artifact": "annotation_gff3"})` → existing `BioDataFrame` for a RefSeq annotation
 - provider: `refseq.gcf` × `genome_fasta` → original catalog-selected genomic FASTA inside a complete NCBI Datasets package
 - provider: `refseq.gcf` × `annotation_gff3` → original catalog-selected GFF3 inside a complete NCBI Datasets package
 - provider: `refseq.gcf` × `rna_fasta` → original catalog-selected RNA FASTA inside a complete NCBI Datasets package
@@ -44,11 +169,29 @@ Own interval/sequence APIs; expose persistent-ID discovery, environment-local bi
 - provider: `refseq.gcf` × `protein_fasta` → original catalog-selected protein FASTA inside a complete NCBI Datasets package
 - provider: `uniprot` × `protein_fasta` → original accession-named UniProtKB FASTA response
 - provider: `uniprot` × `entry_json` → original complete accession-named UniProtKB JSON response
+- provider: `uniprot` × `alphafold_cif` → one explicitly requested AlphaFold model
+- provider: `pubmed|clinvar|dbsnp|geo` → available PMC PDF, complete VCV XML, complete RefSNP JSON, and single GEO matrix or explicit SOFT
+- provider: manifest-declared structural/sequence/article/study/label/pathway namespaces → their native provider files; `encode` accepts only ENCFF file IDs
+- api: `align_paired_reads(reference_fasta, fastq_r1, fastq_r2, bam_path, *, mem_args=(), sort_args=(), build_index=True)` → local BWA index/MEM execution through BioV software environments and pysam-sorted BAM; optional BAM index; native arguments and failures retained
+- api: `crisprprimer` → existing deterministic matching, scoring, rice identifier conversion and fixed computation; BioV distributes the package and its lookup tables, while GEEPilot owns task selection and interpretation
+- cmd: `crisprprimer`, `crisprprimer-docker`, `biov-azimuth` → migrated native Python workflow, existing Docker report bridge, and existing Azimuth backend runner; original scientific settings and scoring behavior retained
+- file: `skills/` → specialized analysis and data-query guidance; no generic agent runtime
+- env: uv + uv.lock → BioV development and Python 3.12/3.13/3.14 compatibility tests; scientific dependencies belong to deployment-selected Pixi environments
+- cmd: `biov exec [--no-install] [--cwd DIR] [SOURCE:]NAME [ARGS]...` → bare NAME and conda:NAME select a declared environment's same-name Pixi task or executable, otherwise temporary Pixi execution; pypi uses uv tool run, npm uses npx; arguments pass through without requiring `--`
+- config: `--config` or `BIOV_CONFIG` selects `config.toml` in the user configuration directory → application settings; environment variables override TOML; execution host uses native SSH configuration
+- env: `BIOV_EXECUTION_HOST`, `BIOV_SSH_CONFIG`, `BIOV_EXECUTION_CWD` → private SSH destination/configuration and execution paths; no public remote subcommand
+- env: `BIOV_ENVIRONMENT_MANIFEST` → explicit project manifest; unset selects bundled pyproject.toml and pixi.lock
+- env: `BIOV_ENVIRONMENT_ROOT` → managed Pixi and scientific environments under the platform user data directory; used only when no configured or PATH Pixi matches the pinned version
+- env: `BIOV_PIXI_BIN` → explicit Pixi executable; otherwise a matching `pixi` on PATH, otherwise the managed copy
+- env: `BIOV_MAX_FILE_BYTES` → optional ceiling for each downloaded or decompressed provider file
+- cmd: `biov setup [ENVIRONMENT | --all] [--archive FILE] [--update-lock]` → make the pinned Pixi available (reusing a compatible one) and install a declared Pixi environment from the bundled manifest and lock
+- cmd: `biov pixi [ARGS]...` → run the resolved Pixi manager with native arguments and its exit status
 - cmd: `biov run [OPTIONS] SCRIPT [ARGS]...` → run complete Python script locally or submit it to LSF
 - env: `BIOV_LSF_PYTHON` ? Python executable visible from LSF execution hosts; default = submitting interpreter
 - file: `$BIOV_HOME/artifacts/refseq.gcf/<requested_accession>/` → unmodified extracted NCBI Datasets package root (`README.md`, `md5sum.txt`, `ncbi_dataset/...`)
 - file: `$BIOV_HOME/artifacts/uniprot/<accession>/` → independently cached unmodified `<accession>.fasta` and/or complete `<accession>.json`; ⊥ manifest
 - file: `.github/workflows/ci.yml` → test matrix, hooks & wheel/sdist inspection on push and pull requests
+- file: Python sdist → package sources and resources, build metadata and licenses, Python tests, documentation and documentation build files; plugin sources are distributed through Git
 - file: `.github/workflows/registry-drift.yml` → scheduled asset sync; opens a pull request when upstream changes
 
 ## §R RESEARCH
@@ -67,6 +210,10 @@ R11|UniProt individual entry|`GET https://rest.uniprot.org/uniprotkb/<accession>
 R12|UniProt structure links|one UniProtKB entry can expose many PDB cross-references with distinct methods, resolutions & chain coverage ∴ UniProt accession ≠ unique PDB coordinate file|https://rest.uniprot.org/uniprotkb/P42212.json?fields=xref_pdb
 R13|UniProt complete entry|individual-entry REST retrieval supports accession-qualified `.json`; unfiltered response retains full entry metadata including database cross-references|https://www.uniprot.org/help/api_retrieve_entries
 R14|NCBI genome summary|`datasets summary genome accession <GCF>` returns assembled-genome metadata as JSON without downloading a genome data package|https://www.ncbi.nlm.nih.gov/datasets/docs/v2/reference-docs/command-line/datasets/summary/genome/datasets_summary_genome_accession/
+R15|PMC PDF access|the ID Converter identifies the current PMC version; cloud metadata supplies available PDF object and MD5; old OA web service was retired in August 2026|https://pmc.ncbi.nlm.nih.gov/tools/pmcaws/
+R16|GEO files|Series matrices contain values with series/sample metadata; full SOFT preserves accession data; multiple matrices need explicit selection|https://www.ncbi.nlm.nih.gov/geo/info/download.html
+R17|ClinVar complete record|EFetch with rettype=vcv and is_variationid retrieves the complete variation XML|https://www.ncbi.nlm.nih.gov/clinvar/docs/programmatic_access/
+R18|dbSNP full data|RefSNP endpoint returns the full native variation JSON by rs number|https://api.ncbi.nlm.nih.gov/variation/v0/
 
 ## §V INVARIANTS
 V1: intervals use 0-based, end-exclusive `[start,end)`; integer `0 ≤ start < end`; touching boundaries ≠ overlap
@@ -77,46 +224,71 @@ V5: `overlap` returns each matching self row once; `first|last` select membershi
 V6: `intersect` emits one clipped self-metadata row per overlap pair; overlap duplicates yield duplicate output rows
 V7: `subtract_ranges` emits every non-empty residual fragment with self metadata; overlapping/duplicate masks do not duplicate residual space
 V8: `nearest` returns ≤1 row/query; overlap `Distance=0`, otherwise `gap+1` so adjacent half-open intervals have `Distance=1`; `next|previous` = genomic right|left; `upstream|downstream` = strand-aware 5′|3′; tie → lowest other input row; missing group candidate → omit query
-V9: public package & lock contain ⊥ `pyranges`, `sorted-nearest`, `ncls`; unnecessary `setuptools` absent
+V9: BioV core dependencies exclude PyRanges, sorted-nearest and ncls; optional analysis environments follow their scientific packages' native dependencies
 V10: ordinary string Series `.seq` → `AttributeError`; caller ! choose/carry `biov.dna|rna|protein`; ⊥ content guessing
 V11: sequence storage uppercases valid strings, preserves `pd.NA`, accepts empty strings & declared IUPAC alphabets, rejects non-string/invalid symbols with `SequenceValidationError`
 V12: DNA/RNA reverse complement preserves dtype/nulls; weighted GC handles IUPAC & empty string; translation requires complete codons, honors `table,to_stop`, preserves nulls, returns `biov.protein`
 V13: protein mass/pI/composition use non-empty canonical 20 amino acids; extended IUPAC, stop, or empty sequence stored but analysis → stable `SequenceValidationError`; null results remain null; composition columns = canonical amino-acid order & values = percentages
-V14: RuRanges called only from interval module; Biopython algorithms called only from sequence module
-V15: pre-existing public BioV behavior & tests remain intact
+V14: RuRanges is called only from the interval module; Biopython sequence algorithms are called only from the sequence module; other modules may use Biopython parsers but not its algorithms
+V15: preserve existing behavior except explicitly revised contracts; artifact access uses standard exceptions without BioV-specific error subclasses
 V16: prompt parser recognizes explicit Compact Identifiers, identifiers.org URLs, BioV resource URIs & allowlisted bare IDs; canonicalizes variants, preserves first occurrence order, deduplicates, accepts provider/slash accessions & trims prose punctuation
 V17: parser emits links only for resolver-valid IDs; invalid candidates omitted; upstream/service/JSON failures surface distinctly ≠ invalid ID
 V18: `identifiers://registry:id` round-trips reserved accession characters & returns native resolver JSON; `identifiers://registry` losslessly reconstructs the native namespace object; invalid registry/accession → stable resource error
-V19: identifiers.org integration is read-only/idempotent, accesses only fixed resolver origin, has bounded prompt candidates & request timeout
-V20: `biov mcp` starts stdio without protocol-corrupting stdout; `biov-mcp` ∉ installed scripts; existing public APIs remain importable
+V19: identifiers.org integration is read-only/idempotent, accesses only the fixed resolver, registry-dataset and identifiers.org origins, has bounded prompt candidates & request timeout
+V20: `biov mcp` starts stdio without protocol-corrupting stdout; `biov-mcp` ∉ installed scripts; expected provider errors are translated once to SDK errors so clients receive their messages
 V21: asset preserves complete official response in native nested shape; namespace resources, institutions & locations remain upstream-owned objects
-V22: MCP publishes exactly four templates across three schemes: `refseq.gcf`, `uniprot`, and the two `identifiers` forms; per-registry and old `identifiers://resolve/*` templates ∉ resources
+V22: MCP publishes a data template for each manifest namespace, the two `identifiers` forms; no API catalog or old `identifiers://resolve/*` resource
 V23: data template metadata exposes prefix, accession regex, sample & namespace ID; every ID read validates the asset regex; `namespaceEmbeddedInLui` reconstructs resolver input correctly
-V24: prompt tool uses resolver-parsed namespace/local ID → data resource for `refseq.gcf|uniprot`, otherwise generic identifiers resource; provider-qualified input maps to a location-independent URI; output URI deduplicated in prompt order
+V24: prompt tool uses resolver-parsed namespace/local ID → direct resource for a manifest namespace, otherwise generic identifiers resource; provider-qualified input maps to a location-independent URI; output URI deduplicated in prompt order
 V25: asset validation checks only fields required for runtime indexing/routing; unknown upstream fields & nesting ! preserved; asset ! packaged in wheel/sdist
 V26: registry update validates upstream JSON/runtime fields; byte-identical body skips replacement; changed body atomically replaces asset unchanged
 V27: bare-ID recognition checks only an explicit namespace-prefix allowlist; `refseq.gcf` ∈ allowlist; non-allowlisted registry patterns ∉ inference; invalid shorthand omitted before resolver access
 V28: each accepted identifier syntax variant ! pass an isolated acceptance case without another valid fallback form; combined variants ! canonicalize & deduplicate before resolver access
-V29: `parse_identifier` accepts exactly one full reference, validates packaged namespace regex, returns direct data URI for supported namespaces or generic identifiers URI otherwise without resolver I/O; prose, multiple references, per-registry schemes, unknown namespaces & non-allowlisted bare IDs → stable syntax error
-V30: artifact support registry keyed only by `(namespace,artifact kind)`; analysis remains ordinary Biopython/ecosystem code; ⊥ BioV GC/alignment/etc wrapper proliferation
-V31: versioned GCF path request returns that exact catalog assembly; versionless GCF accepts exactly one matching versioned catalog assembly; missing/ambiguous/non-GCF package → stable artifact error
+V29: `parse_identifier` accepts exactly one full reference, validates packaged namespace regex, returns direct data URI for supported namespaces or generic identifiers URI otherwise without resolver I/O; prose, multiple references, unsupported per-registry schemes, unknown namespaces & non-allowlisted bare IDs → stable syntax error
+V31: versioned GCF path request returns that exact catalog assembly; versionless GCF accepts exactly one matching versioned catalog assembly; missing/ambiguous/non-GCF package → FileNotFoundError
 V32: `Artifact` is accepted wherever `os.PathLike[str]` is accepted & exposes original package member path, package root, requested/canonical identifier, kind & byte size
 V33: valid package-directory cache hit reads only local catalog/file metadata & skips `datasets`; cache miss downloads/extracts in a unique sibling staging directory then atomically publishes the complete package root; failed/interrupted writes never become cache hits
 V34: command argv = `datasets download genome accession <accession> --include gff3,rna,cds,protein,genome,seq-report --filename <temporary-zip> --no-progressbar`; every safe ZIP member retains its exact relative path; ⊥ renamed/copied FASTA, BioV manifest, partial extraction or direct REST download
-V35: original package catalog selects exactly one existing `GENOMIC_NUCLEOTIDE_FASTA`; unsafe/duplicate ZIP paths, invalid catalog, accession mismatch or missing/duplicate FASTA → stable package error; missing/rejected `datasets` CLI → stable service error
+V35: original package catalog selects exactly one existing `GENOMIC_NUCLEOTIDE_FASTA`; unsafe/duplicate ZIP paths and missing/duplicate FASTA → ValueError; accession mismatch → FileNotFoundError; native parser and I/O errors propagate; rejected `datasets` CLI reports its diagnostic
 V36: `biov run` passes Python executable, absolute script & arguments as argv without shell interpolation; complete script—including `path`—runs inside selected executor
 V37: local executor inherits current cwd/environment/stdio & command exit code becomes `biov run` exit code
 V38: LSF executor submits via `bsub`, pins cwd, supports queue/name/stdout/stderr + executor-visible Python, returns parsed numeric job-ID receipt; accepted submission never claims job completion; missing/rejected/unknown receipt → stable execution error
 V39: cached path is valid only inside current executor; LSF submission does not resolve or return compute-node paths to submitter; shared env/cache/network availability remains deployment configuration
 V40: unsupported namespace × artifact, invalid identifier, assembly mismatch, malformed package, missing/rejected `datasets`, missing executor & rejected submission have distinct public exception types/messages
-V41: omitted artifact kind dispatches by namespace: `refseq.gcf` → `genome_fasta`; `uniprot` → `protein_fasta`; explicit unsupported pair remains a stable `UnsupportedArtifactError`
+V41: omitted artifact kind dispatches by the manifest namespace default; explicit unsupported pairs raise `ValueError` before download
 V42: UniProt request URLs = fixed HTTPS origin + `/uniprotkb/<percent-encoded-accession>.fasta|.json`; streamed response bytes remain unchanged at accession-named files; ⊥ generated manifest, sequence/JSON rewrite or field filtering
-V43: each UniProt artifact validates only its local regular file, bounded `sp|tr` FASTA header or JSON object, and exact accession; a miss stages and atomically publishes only the requested representation; absent/invalid/mismatched response never becomes a cache hit
-V44: `uniprot://<accession>` defaults to sequence path while its cache retains complete entry metadata; multiple PDB cross-references or one predicted model ! require separately identified coordinate artifacts; ⊥ arbitrary structure selection
+V43: UniProt FASTA/JSON validates its local regular file, bounded FASTA header or JSON object, and exact accession; a miss atomically publishes only the requested representation; mismatched content never becomes a cache hit
+V44: `uniprot://<accession>` defaults to protein sequence; PDB coordinates require an explicit PDB ID; explicit `alphafold_cif` requires exactly one matching model, with no arbitrary selection
 V45: `entry_json` and `protein_fasta` cache independently; requesting one never fetches or requires the other; full raw JSON retains all upstream PDB IDs and cross-reference properties
 V46: registry asset bytes = upstream response body; ⊥ wrapper, flattening, foreign keys or derived fields; runtime indexes native records in memory without mutating them
 V47: `refseq.gcf://<accession>` executes only `datasets summary genome accession <accession>`; validates one matching report then returns stdout unchanged; ⊥ `path`, package download/extraction or `$BIOV_HOME` write; `path(refseq.gcf)` remains V31–V35
-V48: each registered `refseq.gcf` artifact kind maps to exactly one official catalog `fileType`; the catalog selects exactly one existing member per request; missing/duplicate members → stable package error; one cached package serves every kind
+V48: each registered `refseq.gcf` artifact kind maps to exactly one official catalog `fileType`; the catalog selects exactly one existing member per request; missing/duplicate members → ValueError; native parser and I/O errors propagate; one cached package serves every kind
+V49: BioV publishes no API catalog assets, catalog resources, or generic query dispatcher; search and scientific API queries use task skills and upstream OpenAPI/GraphQL documentation, never pickle schemas
+V50: file namespaces validate accessions with the packaged identifiers.org regex before provider I/O; syntax validity does not imply file availability
+V51: file operations are explicit manifest representations or bounded provider lookups; callers cannot supply arbitrary HTTP endpoints through the artifact API
+V52: PubMed uses the current PMC version and checks its PMID, version, PDF object, and published MD5; no available PDF → failure, never an abstract or scraped-page substitute
+V53: ClinVar downloads complete matching VCV XML; dbSNP downloads matching complete RefSNP JSON; GEO defaults to `expression_matrix`, requiring exactly one nonempty matching GSE Series matrix and rejecting missing or multiple matches; native full SOFT is available only when explicitly selected
+V54: a native file format does not imply completed biological normalization or analysis; multiple GEO matrices, ENCODE experiments, and multiple AlphaFold models require explicit caller decisions
+V55: MCP file descriptions return URI, default kind, and representations without file download or cache I/O; RefSeq/UniProt retain V47/V45 metadata behavior; actual files are accessed through Python or fsspec
+V56: the versioned artifact manifest owns namespaces, kinds, defaults, and NCBI selection fields; discovery validates dispatch structure without network/cache access; caller mutations cannot change dispatch; installed fsspec schemes match manifest namespaces
+V57: individual downloads stage and validate before atomic publication; valid local cache reads skip downloading; format, identifier, HTTP, and network failures do not become successful error-text results or fallback files
+V58: fsspec discovers every manifest namespace without prior `import biov`; reads and `info` reuse `path` validation/download/cache; handles support seek and ranged reads, `open_local` returns the actual filename; writes fail before provider I/O, errors propagate, and directory listing remains unsupported
+V60: local cache roots come from BIOV_HOME, native fsspec configuration, or explicit directory arguments; BioV preserves existing fsspec filecache settings; packaged metadata and repository examples contain no workstation-specific cache paths
+V62: `biov exec` treats only conda, pypi and npm prefixes as sources; bare NAME defaults to conda; bare NAME and conda:NAME select a declared Pixi environment of the same name if present, otherwise `pixi exec -s NAME -- NAME ARGS`; pypi:NAME delegates to `uv tool run NAME ARGS`, npm:NAME to `npx --yes NAME ARGS`; declared environments use `install --locked`, their declared preparation task once, then `run --frozen`, resolving a same-name Pixi task before a same-name executable; BioV options are parsed only before the coordinate, and native arguments reach the program unchanged after an optional initial `--` separator, including quotes, empty strings and shell metacharacters; `--no-install` uses `run --as-is` for declared environments and rejects temporary sources before execution; missing prerequisites fail with actionable errors without switching sources or falling back to host PATH; stdio and native status are preserved
+V63: commands from every source use execution-host paths and inherit caller caches; BioV supplies BIOV_HOME and BIOV_CACHE_HTTP; package/environment configuration uses native manager controls, with no per-software configuration table or cache rewriting
+V64: runtime/environment configuration belongs to deployment; skill instructions expose scientific programs and native arguments; MCP adds no deployment-management tools; dependency checks do not imply scientific validation
+V65: SSH is internal to exec and delegates authentication/configuration/host-key checking to OpenSSH; argv is POSIX-shell-quoted; only the coordinate, native arguments, optional cwd and no-install selection are forwarded; remote manager/cache settings belong to the remote configuration; no automatic file transfer or public remote subcommand
+V66: setup stays explicit and local to the execution host; a configured, PATH or managed Pixi is reused only when its reported version matches the pinned release, and only a downloaded archive must match platform SHA-256 and retain the Pixi license; scientific dependencies and versions belong to src/biov/assets/environments/pyproject.toml and its adjacent pixi.lock, shipped in the wheel and copied into writable content-addressed workspaces when no project is selected; setup uses install --locked and rejects missing/stale locks; exec provisions declared environments from that same lock on demand and never rewrites it, while temporary-source execution resolves packages through its native manager without that project lock; `--no-install` skips provisioning for declared environments and is rejected for temporary sources; shipped channels exclude Anaconda defaults; machine settings remain in application TOML and environment/package declarations use native manager files; preparation tasks an environment declares for source-only tools run on setup and once on demand after installation; initialization requires no agent or LLM
+V67: the sdist contains the Python package and required resources, build metadata and licenses, Python tests, documentation and its build files; source selection is declared in pyproject.toml and CI checks the selected project-file set exactly; skills, plugin manifests and plugin-only tests remain in the Git distribution; an unpacked sdist can build the wheel, run its Python tests and build the documentation
+V68: declared environment entry points belong to native Pixi same-name tasks when the executable name differs; shipped entry tasks preserve the caller directory through INIT_CWD and locate prepared sources through PIXI_PROJECT_ROOT; library entries execute Python scripts, not invented library CLIs; a missing same-name task and executable produces an actionable error naming the environment and manifest, while an existing entry's own exit 127 is preserved; --no-install on an uninitialized bundled workspace reports biov setup NAME without creating it; tasks and executable discovery use Pixi's resolved task and activation data
+V69: managed analysis executes an ordinary Python script synchronously through existing `biov exec` in a declared local locked Pixi environment whose entry accepts scripts; configured SSH managed execution fails explicitly; scientific algorithms and task-specific orchestration remain in caller/example scripts
+V70: every managed run has a unique private persistent directory with exact code, parameters, input copies, complete outputs and logs; inputs are copied with change checks, made read-only, hashed and checked after execution; prior-result reuse verifies the completed record and output identity; missing/modified results fail without recomputation, and failed runs never publish partial files as completed outputs
+V71: the driver alone writes its atomic run record and the worker separately records confirmed scientific-process facts; launch intent precedes execution, launcher creation is not scientific startup, and unconfirmed post-launch failures or nonterminal records queried after restart report unknown without PID-based guesses or resubmission; program completion, declared checks and output validation remain distinct; second-step failure does not alter the first run's saved results
+V72: default analysis summaries include method name, inputs, parameters, requirements, performed checks and at most two preview rows/records, with a 32 KiB total response cap and explicit omissions; complete files remain on disk, small registered files are available as bounded MCP resources, and a configured existing HTTP(S) storage endpoint supplies full-download URLs without automatic publication or a custom transfer protocol; supported scope and actual client verification are recorded in the analysis guide
+
+V73: BioV owns the migrated deterministic crisprprimer and Azimuth implementations and verified publication assets; public Python imports and CLI behavior remain available without GEEPilot; the unpublished NAU mapping and its unused globals are excluded pending source/provenance verification, while public RAP/MSU conversion remains available; unsupported RAP annotation lookup fails explicitly; BLAT uses run_software with literal native argv and propagates failure before reading outputs; caller-local temporary files are never sent to configured SSH execution; cache defaults use BIOV_HOME or native fsspec configuration; scientific methods, model provenance, safety routing and interpretation remain task-skill responsibilities, and migration checks do not imply biological validation
+
+V74: paired-read alignment uses run_software for BWA indexing and alignment, keeps local reference/FASTQ/SAM/BAM paths on the same host, retains caller-specified alignment and sort arguments, and propagates failed commands before consuming their outputs; fixture checks execute actual BAM sorting/indexing without claiming a live BWA run
 
 ## §T TASKS
 id|status|task|cites
@@ -129,31 +301,52 @@ T6|x|write identifiers.org MCP acceptance tests|I.resource,I.tool,I.cmd,V16,V17,
 T7|x|implement resolver client, resource, parser tool & stdio server|I.resource,I.tool,I.cmd,V16,V17,V18,V19,V20
 T8|x|document MCP setup, parsing scope & error behavior|I.resource,I.tool,I.cmd,V16,V17,V18,V19,V20
 T9|x|run full verification matrix|V1,V2,V3,V4,V5,V6,V7,V8,V9,V10,V11,V12,V13,V14,V15,V16,V17,V18,V19,V20
-T10|x|write raw registry asset & generated-resource acceptance tests|I.resource,I.file,I.script,V18,V21,V22,V23,V24,V25
-T11|x|persist raw registry response & generate full asset|I.file,I.script,V21,V22,V25
+T10|x|write raw registry asset & generated-resource acceptance tests|I.resource,I.file,V18,V21,V22,V23,V24,V25
+T11|x|persist raw registry response & generate full asset|I.file,V21,V22,V25
 T12|x|generate namespace MCP resources & prompt links from asset; remove old URI|I.resource,I.tool,V16,V17,V18,V19,V22,V23,V24
-T13|x|document registry URI schemes, aliases & asset refresh|I.resource,I.file,I.script,V22,V23,V24,V25
+T13|x|document registry URI schemes, aliases & asset refresh|I.resource,I.file,V22,V23,V24,V25
 T14|x|run full verification matrix & package inspection|V1,V2,V3,V4,V5,V6,V7,V8,V9,V10,V11,V12,V13,V14,V15,V16,V17,V18,V19,V20,V21,V22,V23,V24,V25
-T15|x|add `biov update-identifiers-registry` command & acceptance tests|I.cmd,I.file,V21,V25,V26
+T15|x|add `biov update` command & acceptance tests|I.cmd,I.file,V21,V25,V26
 T16|x|replace standalone `biov-mcp` with `biov mcp` & update docs/package|I.cmd,V15,V20
 T17|x|support generated URI variants & allowlisted unambiguous bare IDs in `parse_identifiers`|I.tool,V16,V17,V19,V24,V27,V28
-T18|x|write single-ID, path resolution/cache/package & local/LSF execution acceptance tests|I.api,I.provider,I.cmd,V29,V30,V31,V32,V33,V34,V35,V36,V37,V38,V39,V40
-T19|x|implement `IdentifierRef`, artifact provider registry, initial NCBI GCF FASTA provider/cache & public exports|I.api,I.provider,I.file,V29,V30,V31,V32,V33,V34,V35,V39,V40
+T18|x|write single-ID, path resolution/cache/package & local/LSF execution acceptance tests|I.api,I.provider,I.cmd,V29,V31,V32,V33,V34,V35,V36,V37,V38,V39,V40
+T19|x|implement `IdentifierRef`, artifact provider registry, initial NCBI GCF FASTA provider/cache & public exports|I.api,I.provider,I.file,V29,V31,V32,V33,V34,V35,V39,V40
 T20|x|implement whole-script local/LSF executors & `biov run`|I.cmd,I.env,V36,V37,V38,V39,V40
-T21|x|document LLM/Biopython usage, executor boundary, artifact cache & deployment requirements|I.api,I.cmd,I.env,V30,V31,V32,V38,V39,V40
-T22|x|run full tests, hooks, package inspection & bounded official NCBI smoke validation|V15,V29,V30,V31,V32,V33,V34,V35,V36,V37,V38,V39,V40
+T21|x|document LLM/Biopython usage, executor boundary, artifact cache & deployment requirements|I.api,I.cmd,I.env,V31,V32,V38,V39,V40
+T22|x|run full tests, hooks, package inspection & bounded official NCBI smoke validation|V15,V29,V31,V32,V33,V34,V35,V36,V37,V38,V39,V40
 T23|x|replace REST/flattened-FASTA acceptance tests with official CLI argv, complete-package layout, catalog selection & cache tests|I.api,I.provider,I.file,V31,V32,V33,V34,V35
 T24|x|replace RefSeq REST adapter/manifest cache with `datasets` CLI & verbatim package cache|I.api,I.provider,I.file,V31,V32,V33,V34,V35
 T25|x|document CLI prerequisite/package layout & run full verification|V15,V31,V32,V33,V34,V35
-T26|x|write UniProt URI, official endpoint, raw-file cache & failure acceptance tests|I.api,I.provider,I.file,V27,V30,V41,V42,V43,V44
-T27|x|implement namespace-default artifact dispatch & UniProt FASTA provider|I.api,I.provider,I.file,V30,V41,V42,V43,V44
+T26|x|write UniProt URI, official endpoint, raw-file cache & failure acceptance tests|I.api,I.provider,I.file,V27,V41,V42,V43,V44
+T27|x|implement namespace-default artifact dispatch & UniProt FASTA provider|I.api,I.provider,I.file,V41,V42,V43,V44
 T28|x|document UniProt/PDB boundary, run full verification & download official GFP `P42212`|V15,V41,V42,V43,V44
 T29|x|backprop FASTA-only cache bug; preserve & expose complete UniProt JSON beside FASTA|I.api,I.provider,I.file,V42,V43,V44,V45
-T30|x|replace relational registry snapshot with raw upstream response|I.file,I.script,V21,V25,V26,V46
+T30|x|replace relational registry snapshot with raw upstream response|I.file,V21,V25,V26,V46
 T31|x|decouple RefSeq MCP summary reads from complete analysis-package path resolution|I.resource,V23,V47
 T32|x|harden review findings: default MCP resource security, mapped registry CLI errors, bounded datasets/bsub subprocesses|V19,V20,V35,V38,V40
 T33|x|generalize RefSeq catalog selection to annotation/rna/cds/protein artifact kinds|I.provider,V31,V32,V33,V35,V48
 T34|x|add CI test/hook/package workflows & scheduled registry-drift sync; restore byte-exact asset|V15,V25,V26,V46
+T35|superseded|initial API catalogs and NCBI summaries replaced by identifier file providers and task skills in T39|V49,V52,V53,V55
+T36|x|implement manifest-driven artifact discovery and selection; synchronize migration inventory and validate package contents|V48,V56
+T37|x|register read-only identifier filesystems with fsspec; preserve existing FASTA/GFF reader results and verify cache reuse and installed entry points|I.fsspec,V15,V58
+T39|x|replace API catalogs and summaries with identifier file providers; retain task guidance in skills and synchronize documentation|V49,V50,V51,V52,V53,V54,V55,V56,V57,V58
+T40|x|verify combined migration tests, package contents, dynamic fsspec entry points, and preserved existing behavior|V15,V25,V56,V58
+T41|x|preserve configurable local caches and native fsspec settings; verify environment-selected cache paths|V60
+T43|x|add native scientific-program execution in existing environments and execution-host file access; verify argv, file output and failure status|I.cmd,I.env,I.file,V60,V62,V63,V64
+T44|x|make exec the sole native-command entry point; read application and SSH configuration internally, support arbitrary commands in host/pixi environments, and verify routing, literal argv, caches and remote status without implicit file transfer|I.cmd,I.env,V60,V62,V63,V64,V65
+T45|x|use native Pixi manifests and locks, use remote-local configuration, inherit caller caches, and explicitly prepare scientific environments with pinned Pixi and community sources|V60,V62,V63,V65,V66
+T46|x|align exec with uvx/npx: resolve a declared environment by name, provision it on demand from the lock including its declared preparation task, and add `--no-install`|I.cmd,V62,V66
+T47|x|replace software aliases and runtime defaults with package coordinates across conda, PyPI and npm; default bare names to conda and preserve declared locks, preparation, caches, literal arguments and remote status|I.cmd,I.env,V62,V63,V65,V66
+T48|x|include Python sources and resources, Python tests, documentation and its build files in the sdist; verify the exact selected file set, wheel build, unpacked tests and strict documentation build|I.file,V67
+T49|x|restore declared tool entry points as native Pixi tasks, preserve literal task arguments and caller directories, and diagnose missing entries without masking native failures|I.cmd,V62,V68
+T50|x|repair the pinned DiffDock inference environment and default configuration path; verify DiffDock's CLI and scvi's actual package import in locked Linux environments|I.cmd,V64,V66,V68
+T51|x|fix the complete-CDS translation → protein-properties example and acceptance cases in docs/guides/analysis.md, including scientific checks, concrete interfaces, reference context, previews, retrieval, input stability and interruption behavior|D1,D2,D3,D4,D5
+T52|x|implement shared local managed Python analysis through existing Pixi execution, with persistent records, complete outputs, bounded previews, verified references, MCP/CLI access and explicit HTTP retrieval|D1,D2,D3,D4,D5,V69,V70,V71,V72
+T53|x|validate the real five-protein two-step example in locked macOS ARM64 Pixi, SDK stdio and Codex CLI 0.153.4, plus scientific and SDK stdio/HTTP acceptance in Docker linux/amd64 emulation; verify preview-independent reuse, failed-step retention, missing/changed outputs, interrupted records and complete HTTP downloads above the resource limit; record the exact tested scope in docs/guides/analysis.md; desktop and other clients are not claimed as validated; managed SSH/LSF is not implemented, and real stdio verification confirms configured remote analysis is rejected before creating results|D2,D3,D4,D5,V69,V70,V71,V72
+
+T54|x|migrate existing GEEPilot deterministic CRISPR computations, Docker report parsing, Azimuth runner and assets into the BioV distribution; replace removed BLAT API with native execution and verify imports, native argv, failure propagation, cache reuse, inputs and package contents|V60,V62,V65,V67,V73
+
+T55|x|migrate shared GEEPilot BWA-to-BAM execution into a public BioV API, remove the external PATH requirement, and test native argv, sort/index results and failure handling with SAM fixtures|I.api,V62,V65,V74
 
 ## §B BUGS
 id|date|cause|fix
@@ -163,3 +356,6 @@ B3|2026-08-31|RefSeq provider reimplemented NCBI REST and flattened one renamed 
 B4|2026-09-01|UniProt provider conflated default computation artifact with complete upstream cache & downloaded FASTA only|V45
 B5|2026-09-03|registry snapshot transformed upstream JSON into an unused relational format|V46
 B6|2026-09-03|RefSeq MCP metadata read reused `genome_fasta` path resolution & downloaded complete analysis package|V47
+B7|2026-10-01|T47 removed command aliases without moving differing executable and prepared-source entry points to native tasks; run --executable also bypassed tasks|V62,V68
+B8|2026-10-01|T49 moved differing entry points to native tasks but missed `lumpy`, whose environment name matched a different real binary, so exec ran the low-level caller without failing|V68
+B9|2026-10-01|exec diagnosed a 127 exit through Pixi introspection that aborted on error, so a failed diagnosis replaced the entry's own status instead of preserving it|V68
