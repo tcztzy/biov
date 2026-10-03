@@ -1,5 +1,5 @@
 [workspace]
-members = ["crates/biov-core", "crates/biov-python", "crates/biov-identifiers", "crates/biov-data", "crates/biov-cli", "crates/biov-storage"]
+members = ["crates/biov-core", "crates/biov-python", "crates/biov-identifiers", "crates/biov-data", "crates/biov-cli", "crates/biov-storage", "crates/biov-prepared"]
 resolver = "2"
 
 [workspace.package]

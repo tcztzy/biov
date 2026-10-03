@@ -556,6 +556,10 @@ can count as portable. Future acceptance must move prepared bundles, read them
 without BioV, and verify invalidation when input bytes, recipe or output-affecting
 dependencies change, independently from output-integrity checks.
 
+The bounded [prepared RefSeq FASTA index](prepared-fasta.md) extension exercises
+this contract using conventional FAI files; its own guide records acceptance.
+It does not expand native registration to other semantic providers.
+
 ## Future slices, kept separate
 
 - Transactional downloads through official provider tooling, safe archive handling,

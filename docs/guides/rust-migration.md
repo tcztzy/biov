@@ -390,12 +390,14 @@ target tests and checksums. See [maturin distribution](https://www.maturin.rs/di
 
 ## Source builds and native validation
 
-The Cargo workspace contains six members. The sequence pair is `biov-core`
+The Cargo workspace contains seven members. The sequence pair is `biov-core`
 (library and development `biov-core` binary) and `biov-python` (PyO3 extension).
 The native dataset path adds `biov-identifiers` (offline biological identifiers),
 `biov-data` (Polars datasets and provenance) and `biov-cli` (the `biov-rs` MCP
 binary). `biov-storage` owns local immutable native snapshots and offline
-resolution without Polars or transport dependencies. Rust 1.89.0 is both the pinned build toolchain and declared MSRV. PyO3 is pinned to 0.26.0; the committed Cargo
+resolution without Polars or transport dependencies. `biov-prepared` consumes
+verified native snapshots to produce conventional FASTA indices and portable
+prepared-view provenance through a pinned upstream format library. Rust 1.89.0 is both the pinned build toolchain and declared MSRV. PyO3 is pinned to 0.26.0; the committed Cargo
 lockfile controls its transitive dependencies. Maturin 1.15.0 is the pinned PEP 517 build
 backend. The Python 3.12 stable ABI is selected for this small string/list-only
 boundary; no NumPy ABI or interpreter objects cross detached Rust computation.

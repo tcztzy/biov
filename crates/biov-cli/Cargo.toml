@@ -12,6 +12,7 @@ path = "src/main.rs"
 
 [dependencies]
 biov-data = { path = "../biov-data" }
+biov-prepared = { path = "../biov-prepared" }
 biov-storage = { path = "../biov-storage" }
 # rmcp 0.6.4 macros emit newer Tool fields absent in rmcp 0.6.0.
 rmcp-macros = "=0.6.0"
@@ -21,6 +22,7 @@ serde = { version = "=1.0.229", features = ["derive"] }
 tokio = { version = "1", features = ["macros", "rt"] }
 
 [dev-dependencies]
+md-5 = "=0.10.6"
 base64 = "=0.22.1"
 polars = { version = "=0.51.0", default-features = false, features = ["ipc"] }
 sha2 = "=0.10.9"

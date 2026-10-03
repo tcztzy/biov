@@ -1,15 +1,17 @@
 //! Thin native command-line adapter. MCP exclusively owns stdout while serving;
-//! one-shot storage commands write a single bounded JSON result there instead.
+//! one-shot local commands write a single bounded JSON result there instead.
 mod mcp;
+mod prepared_cli;
 mod storage_cli;
 
 use std::{collections::BTreeMap, ffi::OsString, path::PathBuf, process::ExitCode};
 
 use biov_data::DatasetStore;
+use biov_prepared::PreparedStore;
 use biov_storage::NativeStore;
 use rmcp::{transport::stdio, ServiceExt};
 
-const HELP: &str = "BioV native dataset and storage tools\n\nUsage:\n  biov-rs mcp --data-root DIR --output-root DIR [--store-root DIR]\n  biov-rs storage register --store-root DIR --source-root DIR --request-file JSON\n  biov-rs storage resolve --store-root DIR --request-file JSON\n  biov-rs --help\n  biov-rs --version\n\nThe MCP server uses JSON-RPC over stdio. Dataset input paths and storage\nregistration sources are restricted to --data-root; exports are restricted to\n--output-root. Optional --store-root enables durable native snapshots.\nOne-shot storage commands read at most 64 KiB of typed JSON and return one JSON\nresult on stdout. Resolution needs only the store, not the original source.\nNo Python runtime is used. Help, diagnostics, and errors go to stderr.";
+const HELP: &str = "BioV native dataset, storage and prepared tools\n\nUsage:\n  biov-rs mcp --data-root DIR --output-root DIR [--store-root DIR]\n  biov-rs storage register --store-root DIR --source-root DIR --request-file JSON\n  biov-rs storage resolve --store-root DIR --request-file JSON\n  biov-rs prepared fasta --store-root DIR --request-file JSON\n  biov-rs --help\n  biov-rs --version\n\nThe MCP server uses JSON-RPC over stdio. Dataset input paths and storage\nregistration sources are restricted to --data-root; exports are restricted to\n--output-root. Optional --store-root enables durable native snapshots and prepared FASTA indices.\nOne-shot storage and prepared commands read at most 64 KiB of typed JSON and return one JSON\nresult on stdout. Resolution and preparation need only the store, not the original source.\nPrepared FASTA requires an exact versioned RefSeq reference, snapshot ID and\nsource-relative genome_fasta path; it never rewrites native snapshot files.\nNo Python runtime is used. Help, diagnostics, and errors go to stderr.";
 
 #[derive(Debug, PartialEq, Eq)]
 enum Command {
@@ -29,13 +31,17 @@ enum Command {
         store_root: PathBuf,
         request_file: PathBuf,
     },
+    PreparedFasta {
+        store_root: PathBuf,
+        request_file: PathBuf,
+    },
 }
 
 fn parse_args(args: impl IntoIterator<Item = OsString>) -> Result<Command, String> {
     let mut args = args.into_iter();
     let command = args
         .next()
-        .ok_or("missing command; expected mcp or storage")?;
+        .ok_or("missing command; expected mcp, storage or prepared")?;
     if command == "--help" || command == "-h" {
         if args.next().is_some() {
             return Err("unexpected argument after --help".into());
@@ -66,8 +72,20 @@ fn parse_args(args: impl IntoIterator<Item = OsString>) -> Result<Command, Strin
             Some(_) => return Err("unknown storage command; expected register or resolve".into()),
             None => return Err("missing storage command; expected register or resolve".into()),
         }
+    } else if command == "prepared" {
+        match args.next().as_deref() {
+            Some(action) if action == "fasta" => ("fasta", &["--store-root", "--request-file"]),
+            Some(action) if action == "--help" || action == "-h" => {
+                if args.next().is_some() {
+                    return Err("unexpected argument after --help".into());
+                }
+                return Ok(Command::Help);
+            }
+            Some(_) => return Err("unknown prepared command; expected fasta".into()),
+            None => return Err("missing prepared command; expected fasta".into()),
+        }
     } else {
-        return Err("unknown command; expected mcp or storage".into());
+        return Err("unknown command; expected mcp, storage or prepared".into());
     };
     let mut options = BTreeMap::new();
     while let Some(arg) = args.next() {
@@ -118,6 +136,10 @@ fn parse_args(args: impl IntoIterator<Item = OsString>) -> Result<Command, Strin
             store_root: required("--store-root")?,
             request_file: required("--request-file")?,
         }),
+        "fasta" => Ok(Command::PreparedFasta {
+            store_root: required("--store-root")?,
+            request_file: required("--request-file")?,
+        }),
         _ => unreachable!("parser modes are fixed above"),
     }
 }
@@ -149,6 +171,10 @@ async fn main() -> ExitCode {
             store_root,
             request_file,
         } => storage_cli::resolve(&store_root, &request_file),
+        Command::PreparedFasta {
+            store_root,
+            request_file,
+        } => prepared_cli::fasta(&store_root, &request_file),
         Command::Mcp {
             data_root,
             output_root,
@@ -171,12 +197,17 @@ async fn serve_mcp(
 ) -> Result<(), String> {
     let store = DatasetStore::new(&data_root, &output_root).map_err(|error| error.to_string())?;
     let native_store = store_root
+        .as_ref()
         .map(NativeStore::new)
+        .transpose()
+        .map_err(|error| error.to_string())?;
+    let prepared_store = store_root
+        .map(PreparedStore::new)
         .transpose()
         .map_err(|error| error.to_string())?;
     // The official SDK owns initialization, framing, routing, and EOF shutdown.
     // Never install a stdout logger: it would corrupt this transport.
-    let service = mcp::DatasetServer::new(store, data_root, native_store)
+    let service = mcp::DatasetServer::new(store, data_root, native_store, prepared_store)
         .serve(stdio())
         .await
         .map_err(|error| format!("MCP initialization failed: {error}"))?;
@@ -262,6 +293,25 @@ mod tests {
     }
 
     #[test]
+    fn parses_prepared_fasta_without_an_original_source() {
+        assert_eq!(
+            args(&[
+                "prepared",
+                "fasta",
+                "--request-file",
+                "request.json",
+                "--store-root",
+                "saved"
+            ])
+            .unwrap(),
+            Command::PreparedFasta {
+                store_root: "saved".into(),
+                request_file: "request.json".into()
+            }
+        );
+    }
+
+    #[test]
     fn rejects_unknown_missing_and_duplicate_arguments() {
         for invalid in [
             vec![],
@@ -283,6 +333,23 @@ mod tests {
             vec!["mcp", "--store-root", "saved", "--store-root", "saved"],
             vec!["--help", "extra"],
             vec!["--version", "extra"],
+            vec!["prepared"],
+            vec!["prepared", "other"],
+            vec!["prepared", "fasta"],
+            vec!["prepared", "fasta", "--store-root", "saved"],
+            vec!["prepared", "fasta", "--request-file", "request.json"],
+            vec!["prepared", "fasta", "--source-root", "input"],
+            vec![
+                "prepared",
+                "fasta",
+                "--store-root",
+                "saved",
+                "--request-file",
+                "r.json",
+                "--request-file",
+                "r.json",
+            ],
+            vec!["prepared", "--help", "extra"],
             vec!["storage"],
             vec!["storage", "other"],
             vec!["storage", "register"],
@@ -338,6 +405,8 @@ mod tests {
             &["storage", "--help"],
             &["storage", "register", "--help"],
             &["storage", "resolve", "--help"],
+            &["prepared", "--help"],
+            &["prepared", "fasta", "--help"],
         ] {
             assert_eq!(args(words).unwrap(), Command::Help);
         }

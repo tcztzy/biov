@@ -17,6 +17,9 @@ coordinates, units and complete data.
 - Register existing RefSeq native packages and declared PDB representations in
   [immutable local snapshots](guides/native-storage.md), then resolve ordinary
   file paths offline without a database
+- Prepare a pinned RefSeq genome FASTA into a [conventional index and sequence
+  dictionary](guides/prepared-fasta.md), with verified reuse and independently
+  readable relative source dependencies
 - Work with genomic intervals and explicitly typed DNA, RNA and protein sequences
 - Run local managed Python analyses, retain complete outputs and records, and
   inspect bounded previews through Python, CLI or MCP

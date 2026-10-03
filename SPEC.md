@@ -9,6 +9,7 @@ the broader design. D0 applies to every cache/data design; portable native-resul
 companions have their own acceptance gate (T68), with legacy migration gaps (T69).
 D13 specifies the separate bounded native-source snapshot slice and its acceptance
 gates (T70–T71); five-source research does not imply five implemented adapters.
+D14 and T72 describe the bounded prepared RefSeq FASTA indexing extension.
 
 ## §G GOAL
 **Non-negotiable: all cache and data designs must let an agent quickly understand
@@ -903,11 +904,83 @@ Feature: Offline source-native snapshots usable without BioV
     Then a declaration conflict is reported without changing the existing meaning
 ```
 
+D14: Prepared RefSeq FASTA indexing is a separate Rust library responsibility,
+consuming D13 exact verified snapshots. It accepts a canonical versioned RefSeq
+reference, exact source snapshot ID and an explicitly selected `genome_fasta`
+source path. Plain uncompressed case-preserving IUPAC DNA FASTA is indexed with
+pinned upstream noodles-fasta; BioV adds bounded input validation, duplicate-ID
+rejection, provenance and publication, not a replacement FASTA/index decoder.
+The immutable native package is unchanged. A conventional FAI index, small TSV
+sequence dictionary, readable README and JSON provenance are published below
+`prepared/sha256-<recipe>/`. Schema, identifier token semantics, base versus byte
+units, interval conventions, unsupported input and unknown scientific facts are
+explicit. No full sequence table or mandatory raw-data duplication is introduced.
+
+The recipe identity includes exact selected input bytes/snapshot/path,
+implementation contract and output-affecting dependency versions/parameters.
+Actual output SHA-256 values remain separate. Output-affecting algorithm changes
+must update the implementation contract. Publication is staged, verified and
+atomic without replacement. Reuse verifies sources and outputs, reports corruption
+rather than overwriting, and never treats incomplete staging as a ready artifact.
+Sequential validation has explicit line, metadata and record bounds; it does not
+claim constant-time reuse, whole-process peak memory or benchmarked performance.
+
+Relative references reuse the native snapshot. A portable dependency closure
+contains the exact referenced complete snapshot and prepared files at their
+store-relative paths. The prepared directory alone is explicitly incomplete.
+Ordinary indexed readers must work after that closure moves, without BioV, a
+catalog database, original source locations or network. Acquisition facts remain
+native/recorded facts; hashes establish consistency, not authenticity or QC.
+General transforms, compressed FASTA, GEO conversion, downloads and GC remain
+separately planned. See `docs/guides/prepared-fasta.md` for the precise implemented
+contract and executed validation status.
+
+### D14 acceptance cases
+
+```gherkin
+Feature: Independently readable prepared reference indexing
+  Scenario: Prepare, reuse and read a moved dependency closure
+    Given a verified registered RefSeq snapshot with a selected genome FASTA
+    When I prepare its exact versioned reference, snapshot ID and source path
+    Then the original native bytes and paths remain unchanged
+    And ordinary FAI and sequence dictionary files describe the complete FASTA
+    And recipe identity is distinct from actual output SHA-256 values
+    When I repeat the identical request
+    Then verified prepared output is reused
+    When I move the referenced snapshot and prepared directory together
+    Then an independent indexed reader returns exact boundary and interior subsequences
+    And complete records match an independent sequential reader
+    And no BioV runtime, database, original path or network is required
+
+  Scenario: Invalidate changed inputs and reject corruption
+    Given a prepared index for one immutable snapshot
+    When source content, implementation contract, tool version or parameters change
+    Then the recipe identity changes
+    When saved input or output bytes disagree with their recorded identities
+    Then preparation reports corruption instead of returning a ready result
+    And no existing native or prepared artifact is overwritten
+
+  Scenario: Incomplete and duplicate work remain safe
+    Given an interrupted preparation with partial staged output
+    When a fresh preparation starts
+    Then the staged output is not reused as a completed index
+    And a verified complete index can be published without replacing a prior result
+    When two identical preparations publish concurrently
+    Then the verified immutable winner is retained
+
+  Scenario: Reject unsupported FASTA without changing its meaning
+    Given duplicate names, invalid wrapping or unsupported sequence bytes
+    When preparation validates and indexes the input
+    Then the request fails without publishing a prepared result
+    And no input normalization, renaming or whole-sequence allocation occurs
+```
+
 ## §I INTERFACES
 The following entries describe the existing Python interfaces unless marked
 otherwise. The independent Rust MCP dataset route is specified in D12 and tracked
 in T63–T67; the native dataset guide records its verified scope.
 
+- native prepared API: `biov_prepared::PreparedStore::new(store_root)` and `prepare_fasta(PrepareFastaRequest)` → D14; CLI `biov-rs prepared fasta --store-root DIR --request-file JSON` and MCP `prepared_fasta` are thin bounded adapters
 - native cmd: `biov-rs storage register --store-root DIR --source-root DIR --request-file JSON` and `biov-rs storage resolve --store-root DIR --request-file JSON` → thin adapters for D13, no downloads
 - native tool: `storage_register` and `storage_resolve` through `biov-rs mcp --data-root DIR --output-root DIR --store-root DIR` → the same bounded offline native-store contracts; `--store-root` is optional for the existing dataset-only route
 - native library: `biov_storage::NativeStore::new(store_root)`, `register(source_root, RegisterRequest)` and `resolve(ResolveRequest)` → source-native immutable copy registration and offline filesystem resolution; D13 defines the bounded provider/validation scope
@@ -1077,6 +1150,8 @@ V77: every cache/data design obeys D0; copied/moved bundles must be discoverable
 
 V78: native copy-registration preserves complete source bytes/layouts and original ownership, publishes only validated immutable snapshots without replacement, and resolves offline through portable filesystem records; exact biological references, snapshot content identity, declared scope and representation availability remain separate; full checksums do not authenticate provenance, and stream-copy storage does not expand D12 analytical limits
 
+V79: prepared reference indices preserve native bytes, use established format implementations, distinguish recipe identity from output hashes, verify reuse and no-replace publication, and declare relative dependency closure for independent moved-bundle readers; incomplete staging, corrupt input/output and unsupported FASTA never become ready artifacts
+
 ## §T TASKS
 id|status|task|cites
 T1|x|write contracts & failing acceptance tests|I.*,V1,V2,V3,V4,V5,V6,V7,V8,V9,V10,V11,V12,V13
@@ -1154,6 +1229,8 @@ T69|planned|migrate audited Python provider/fsspec/managed-analysis/CRISPR cache
 
 T70|x|implement the D13 bounded Rust native-store library and validate exact RefSeq catalog/checksum registration, explicitly declared PDB scope, offline paths, missing/ambiguous/unavailable/corrupt outcomes, no-overwrite concurrency, staging isolation, moved-store discovery and ordinary-reader portability; source-built Linux acceptance passes with 32 storage tests, 17 MCP/CLI process cases and independently read relocated real RefSeq/PDB packages under kernel network blocking; see native-storage guide for limits|D0,D9,D13,V77,V78
 T71|planned|add further native semantic adapters and analysis-ready derived views only through independent provider/format contracts; separately gate transactional downloads/hydration, import/result lineage, optional indices, explicit GC, large-data execution and distributed storage; five-source observations are not implementation claims|D0,D9,D10,D13,V77,V78
+
+T72|x|implement and independently validate D14 pinned RefSeq genome FASTA preparation with upstream noodles-fasta, conventional FAI/TSV outputs, bounded streaming, recipe invalidation, verified reuse, atomic publication and moved offline standard-reader acceptance; source-built Linux passes 25 prepared-core tests, 21 installed CLI/MCP cases and 10 independent portability cases including actual RefSeq and SIGKILL/retry; see prepared guide for adversarial coverage and explicit platform/input limits|D0,D9,D13,D14,V77,V78,V79
 
 ## §B BUGS
 id|date|cause|fix

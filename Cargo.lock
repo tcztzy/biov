@@ -166,7 +166,9 @@ version = "0.1.2"
 dependencies = [
  "base64 0.22.1",
  "biov-data",
+ "biov-prepared",
  "biov-storage",
+ "md-5",
  "polars",
  "rmcp",
  "rmcp-macros",
@@ -205,6 +207,24 @@ version = "0.1.2"
 dependencies = [
  "serde",
  "serde_json",
+]
+
+[[package]]
+name = "biov-prepared"
+version = "0.1.2"
+dependencies = [
+ "biov-identifiers",
+ "biov-storage",
+ "fs4",
+ "md-5",
+ "noodles-fasta",
+ "rustix",
+ "schemars",
+ "serde",
+ "serde_json",
+ "sha2",
+ "tempfile",
+ "thiserror",
 ]
 
 [[package]]
@@ -267,6 +287,16 @@ name = "boxcar"
 version = "0.2.14"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "36f64beae40a84da1b4b26ff2761a5b895c12adc41dc25aaee1c4f2bbfe97a6e"
+
+[[package]]
+name = "bstr"
+version = "1.13.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "6bb31b46c14244e20ee9984b11bf5c992b91fb6939fea616e3512c8baecdbe5f"
+dependencies = [
+ "memchr",
+ "serde_core",
+]
 
 [[package]]
 name = "bumpalo"
@@ -1324,6 +1354,39 @@ dependencies = [
  "libc",
  "wasi",
  "windows-sys 0.61.2",
+]
+
+[[package]]
+name = "noodles-bgzf"
+version = "0.51.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "280d401d0358893ad706fb6094a18e7f9e8f3002630f4960889cb702b6e2714e"
+dependencies = [
+ "bytes",
+ "crossbeam-channel",
+ "rayon",
+ "zlib-rs",
+]
+
+[[package]]
+name = "noodles-core"
+version = "0.20.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "c8dbac7c5f9a7de9fe45590f198a09697df631cd13d2060b4742cc48144555b0"
+dependencies = [
+ "bstr",
+]
+
+[[package]]
+name = "noodles-fasta"
+version = "0.66.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "da0263cded3c76c5ddc6d36b805e68e512e6f474a56b9855c7ef37cb69a3fb65"
+dependencies = [
+ "bstr",
+ "memchr",
+ "noodles-bgzf",
+ "noodles-core",
 ]
 
 [[package]]

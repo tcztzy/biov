@@ -138,3 +138,12 @@ jobs:
             /tmp/biov-portability-driver/bin/python -m pytest \
             "$GITHUB_WORKSPACE/tests/test_native_bundle_portability.py" \
             "$GITHUB_WORKSPACE/tests/test_native_storage_portability.py" -q
+      - name: Verify prepared FASTA with independent indexed and sequential readers
+        run: |
+          uv venv /tmp/biov-standalone-fasta
+          uv pip install --python /tmp/biov-standalone-fasta/bin/python pysam==0.24.1 biopython==1.88 numpy==2.5.3
+          cd /tmp
+          BIOV_TEST_BINARY=/tmp/biov-native/bin/biov-rs \
+            BIOV_STANDALONE_FASTA=/tmp/biov-standalone-fasta/bin/python \
+            /tmp/biov-portability-driver/bin/python -m pytest \
+            "$GITHUB_WORKSPACE/tests/test_prepared_fasta_portability.py" -q
