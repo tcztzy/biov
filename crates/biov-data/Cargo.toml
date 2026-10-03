@@ -17,4 +17,5 @@ base64 = "=0.22.1"
 thiserror = "=2.0.21"
 tempfile = "=3.27.0"
 csv = "=1.4.0"
+csv-core = "=0.1.13"
 polars-arrow-format = { version = "=0.2.1", features = ["ipc"] }

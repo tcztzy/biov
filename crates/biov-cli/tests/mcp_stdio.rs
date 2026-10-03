@@ -927,3 +927,145 @@ async fn reopen_requires_matching_record_and_rejects_path_and_schema_errors() {
     assert!(reopened["scientific_metadata"]["species"].is_null());
     second.finish().await;
 }
+
+#[tokio::test]
+async fn csv_record_semantics_match_complete_retrieved_exports() {
+    let fixture = Fixture::new();
+    let cases = [
+        ("x\ra\rb\r", json!([["a"], ["b"]])),
+        ("x\r\na\r\nb\r\n", json!([["a"], ["b"]])),
+        ("x,y\na,b\n\nc,d\n", json!([["a", "b"], ["c", "d"]])),
+        ("x\n\"\"\n\n", json!([[""]])),
+        (
+            "\r\nx,y\r\"a\n\nb\",\"c\rd\"\r\n\"a\r\n\r\nb\",\"say \"\"hi\"\"\"\n,\"\"\r",
+            json!([["a\n\nb", "c\rd"], ["a\r\n\r\nb", "say \"hi\""], [null, ""]]),
+        ),
+    ];
+    let mut server = Server::start(&fixture).await;
+    for (index, (csv, expected)) in cases.into_iter().enumerate() {
+        let path = format!("syntax-{index}.csv");
+        fs::write(fixture.data.join(&path), csv).unwrap();
+        // No preview: every value below must come from the full export.
+        let opened = server
+            .successful("dataset_open", json!({"path":path,"preview_rows":0}))
+            .await;
+        assert_eq!(opened["row_count"], expected.as_array().unwrap().len());
+        assert_eq!(
+            opened["source_sha256"],
+            format!("{:x}", Sha256::digest(csv.as_bytes()))
+        );
+        let exported = server
+            .successful("dataset_export", json!({"dataset_id":opened["dataset_id"]}))
+            .await;
+        assert_eq!(exported["record"]["row_count"], opened["row_count"]);
+        let mut bytes = Vec::new();
+        loop {
+            let chunk = server.successful("dataset_read_artifact", json!({"artifact_id":exported["artifact_id"],"offset":bytes.len(),"max_bytes":113})).await;
+            bytes.extend(STANDARD.decode(chunk["data"].as_str().unwrap()).unwrap());
+            if chunk["eof"] == true {
+                break;
+            }
+        }
+        assert_eq!(format!("{:x}", Sha256::digest(&bytes)), exported["sha256"]);
+        let frame = IpcReader::new(Cursor::new(bytes)).finish().unwrap();
+        assert_eq!(frame.height(), expected.as_array().unwrap().len());
+        for (row_index, row) in expected.as_array().unwrap().iter().enumerate() {
+            assert_eq!(frame.width(), row.as_array().unwrap().len());
+            for (column, value) in row.as_array().unwrap().iter().enumerate() {
+                assert_eq!(
+                    frame.get_columns()[column].str().unwrap().get(row_index),
+                    value.as_str()
+                );
+            }
+        }
+    }
+    for (index, csv) in ["x\n\"a\n", "x\n\"a\"junk\n", "x,y\ra\r", "x,y\r\na,b,c\r\n"]
+        .into_iter()
+        .enumerate()
+    {
+        let path = format!("invalid-{index}.csv");
+        fs::write(fixture.data.join(&path), csv).unwrap();
+        server
+            .tool_error("dataset_open", json!({"path":path}))
+            .await;
+    }
+    server.finish().await;
+}
+
+#[tokio::test]
+async fn csv_blank_lines_and_retained_typed_payload_cannot_bypass_preflight() {
+    let fixture = Fixture::new();
+    let names: Vec<_> = (0..64).map(|i| format!("c{i}")).collect();
+    let header = names.join(",");
+    let row = format!("{}\n", vec!["1"; 64].join(","));
+    fs::write(
+        fixture.data.join("blank.csv"),
+        format!("{header}\n{}{row}", "\n".repeat(62_000)),
+    )
+    .unwrap();
+    let mut server = Server::start(&fixture).await;
+    let blank = server
+        .successful("dataset_open", json!({"path":"blank.csv","preview_rows":0}))
+        .await;
+    assert_eq!(blank["row_count"], 1);
+    let exported = server
+        .successful("dataset_export", json!({"dataset_id":blank["dataset_id"]}))
+        .await;
+    let chunk = server
+        .successful(
+            "dataset_read_artifact",
+            json!({"artifact_id":exported["artifact_id"],"offset":0,"max_bytes":49152}),
+        )
+        .await;
+    assert_eq!(chunk["eof"], true);
+    let bytes = STANDARD.decode(chunk["data"].as_str().unwrap()).unwrap();
+    let frame = IpcReader::new(Cursor::new(bytes)).finish().unwrap();
+    assert_eq!(frame.shape(), (1, 64));
+    assert!(frame
+        .get_columns()
+        .iter()
+        .all(|column| column.str().unwrap().get(0) == Some("1")));
+    server
+        .successful("dataset_release", json!({"dataset_id":blank["dataset_id"]}))
+        .await;
+
+    let schema: serde_json::Map<String, Value> = names
+        .iter()
+        .map(|name| (name.clone(), json!("int64")))
+        .collect();
+    // Each table fits, but two exceed 64 MiB when numeric payload is included.
+    fs::write(
+        fixture.data.join("typed.csv"),
+        format!("{header}\n{}", row.repeat(21_000)),
+    )
+    .unwrap();
+    let first = server
+        .successful(
+            "dataset_open",
+            json!({"path":"typed.csv","schema":schema,"preview_rows":0}),
+        )
+        .await;
+    assert_eq!(first["row_count"], 21_000);
+    let response = server
+        .call(
+            "dataset_open",
+            json!({"path":"typed.csv","schema":schema,"preview_rows":0}),
+        )
+        .await;
+    assert_eq!(response["result"]["isError"], true);
+    assert!(response["result"]["content"][0]["text"]
+        .as_str()
+        .unwrap()
+        .contains("allocation exceeds remaining retained dataset budget"));
+    server
+        .successful("dataset_release", json!({"dataset_id":first["dataset_id"]}))
+        .await;
+    let after_release = server
+        .successful(
+            "dataset_open",
+            json!({"path":"typed.csv","schema":schema,"preview_rows":0}),
+        )
+        .await;
+    assert_eq!(after_release["row_count"], 21_000);
+    server.finish().await;
+}

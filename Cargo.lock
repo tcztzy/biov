@@ -185,6 +185,7 @@ dependencies = [
  "base64 0.22.1",
  "biov-identifiers",
  "csv",
+ "csv-core",
  "polars",
  "polars-arrow-format",
  "schemars",

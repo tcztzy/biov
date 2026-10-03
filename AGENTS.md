@@ -64,8 +64,11 @@ lifecycle in SPEC D6–D8 from currently implemented interfaces.
   legacy pandas, SeqRecord or full Python-API compatibility layers
 - CSV columns remain strings unless explicitly typed. Preserve leading-zero
   identifiers and numeric-looking text exactly. Preflight headers, row width,
-  duplicate names and conservative cell allocation before Polars parsing;
-  reject invalid declared types and non-finite Float64 values
+  duplicate names, declared types and conservative payload/cell allocation
+  against the remaining session budget before constructing Polars columns. Use
+  the same established CSV decoder for validation and materialization; preserve
+  quoted empty strings separately from missing fields and reject malformed quotes
+  and non-finite Float64 values
 - Operate on complete datasets, never preview rows. Keep source and derived
   dataset handles distinct, bound previews and diagnostics, confine files to
   configured roots, and independently read back complete Arrow IPC exports

@@ -16,6 +16,7 @@ use std::{
 use uuid::Uuid;
 
 mod bundle;
+mod csv_input;
 mod reopen;
 pub use reopen::ReopenRequest;
 use reopen::ReopenVerification;
@@ -60,16 +61,6 @@ pub enum ColumnType {
     Int64,
     Float64,
     Boolean,
-}
-impl ColumnType {
-    fn dtype(&self) -> DataType {
-        match self {
-            Self::String => DataType::String,
-            Self::Int64 => DataType::Int64,
-            Self::Float64 => DataType::Float64,
-            Self::Boolean => DataType::Boolean,
-        }
-    }
 }
 #[derive(Debug, Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
@@ -254,56 +245,16 @@ impl DatasetStore {
         let digest = format!("{:x}", Sha256::digest(&bytes));
         let byte_len = bytes.len();
         checked(std::str::from_utf8(&bytes))?;
-        let mut csv = csv::ReaderBuilder::new()
-            .has_headers(true)
-            .from_reader(bytes.as_slice());
-        let headers = checked(csv.headers())?.clone();
-        if headers.is_empty() || headers.len() > MAX_COLUMNS {
-            return Err(err("table must have 1..64 columns"));
+        if self.datasets.len() >= MAX_DATASETS {
+            return Err(err("dataset limit reached; release a dataset first"));
         }
-        if headers
-            .iter()
-            .any(|name| name.is_empty() || name.len() > 128 || name.chars().any(char::is_control))
-        {
-            return Err(err(
-                "column names must be 1..128 bytes without control characters",
-            ));
-        }
-        let unique: std::collections::HashSet<_> = headers.iter().collect();
-        if unique.len() != headers.len() {
-            return Err(err("duplicate CSV column names are not permitted"));
-        }
-        if request
-            .schema
-            .keys()
-            .any(|name| !unique.contains(name.as_str()))
-        {
-            return Err(err("schema names must match existing CSV columns"));
-        }
-        // Reject ragged rows before Polars rather than silently padding or truncating.
-        for (index, row) in csv.records().enumerate() {
-            checked(row)?;
-            if (index + 1).saturating_mul(headers.len()).saturating_mul(17) > MAX_MEMORY_BYTES {
-                return Err(err("input row/column allocation exceeds dataset budget"));
-            }
-        }
-        let mut schema = Schema::with_capacity(headers.len());
-        for name in &headers {
-            schema.with_column(
-                name.into(),
-                request
-                    .schema
-                    .get(name)
-                    .map(ColumnType::dtype)
-                    .unwrap_or(DataType::String),
-            );
-        }
-        let frame = checked(
-            CsvReadOptions::default()
-                .with_has_header(true)
-                .with_schema(Some(std::sync::Arc::new(schema)))
-                .into_reader_with_file_handle(Cursor::new(bytes))
-                .finish(),
+        let retained = self.datasets.values().fold(0usize, |total, dataset| {
+            total.saturating_add(memory_charge(&dataset.frame))
+        });
+        let frame = csv_input::read(
+            &bytes,
+            &request.schema,
+            MAX_MEMORY_BYTES.saturating_sub(retained),
         )?;
         let provenance = json!({"source": request.path, "source_bytes": byte_len, "source_sha256": digest, "input_consistency": "parsed_same_in_memory_snapshot_as_digest", "operations": [], "csv_schema_policy": "strings_unless_explicitly_typed", "declared_schema": request.schema});
         self.insert(

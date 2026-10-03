@@ -410,9 +410,19 @@ preserve such source text as strings or clean it in an explicit separate step.
 Preserve nulls rather than converting them into empty strings or NaN.
 
 Before allocating Polars columns, the CSV preflight validates UTF-8, header names,
-column count, duplicate headers, declared-schema names, every row's field count
-and a conservative per-cell allocation bound. Reject ragged rows rather than
-padding or truncating them. One query applies an optional typed filter (`eq`,
+column count, duplicate headers, declared-schema names, every row's field count,
+declared values and a conservative payload/cell allocation bound against the
+remaining session budget. One established `csv-core` decoder determines fields
+and records in both preflight and direct typed construction; Polars does not
+reparse CSV bytes. LF, CRLF, CR and mixed record terminators are accepted. Empty
+physical lines outside quotes are ignored; quoted embedded line endings and
+blank lines retain their exact bytes. Doubled quotes decode to one quote;
+unterminated quoted fields and characters after their closing quote fail.
+Unquoted empty fields are null; quoted empty strings stay distinct from null.
+Empty numeric/boolean fields are null even when quoted. Reject ragged rows
+rather than padding or truncating them, and verify constructed cardinality
+against the preflight plan. The complete dialect is documented in
+`docs/guides/rust-datasets.md`. One query applies an optional typed filter (`eq`,
 `gt`, `ge`, `lt`, `le` or `is_null`), then one optional stable sort with nulls
 last, then optional column selection. Boolean filters support only `eq` and `is_null`; other comparisons
 require values of the selected column's supported type. Unknown/duplicate
@@ -447,8 +457,10 @@ The concrete initial resource limits are:
   not an increase in the retained-data budget or a process-memory ceiling
 - Session datasets: at most 16 handles and a 64 MiB retained-data charge, summing
   each Polars estimated size plus 17 bytes per cell to cover omitted string-view
-  buffers and validity overhead conservatively. CSV preflight also checks this
-  per-cell charge before Polars allocation. IPC preflight combines decoded
+  buffers and validity overhead conservatively. Before Polars allocation, CSV
+  preflight combines decoded string bytes, numeric payload, packed boolean and
+  validity bounds, this per-cell charge and already-retained datasets. Temporary
+  source/parser buffers are outside the retained charge. IPC preflight combines decoded
   logical payload, 17 bytes per cell and the currently retained charge before
   full decoding. This is not a peak-memory ceiling
 - Preview: zero to 50 rows, default five; 24 KiB serialized-row budget and

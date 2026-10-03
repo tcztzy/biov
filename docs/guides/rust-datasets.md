@@ -258,7 +258,21 @@ catalog, daemon database, automatic restart recovery or background job.
 - UTF-8, comma-delimited CSV with a header; primitive string, int64, float64 and
   boolean columns. Unspecified columns stay strings, preserving leading-zero IDs
   and large numeric text. Use an explicit per-column `schema` for numeric/bool
-  types; unknown columns, failed conversions and non-finite floats fail. Reopening
+  types; unknown columns, failed conversions and non-finite floats fail. CSV
+  decoding uses one established `csv-core` field/record parser for preflight and
+  direct typed Polars construction; Polars does not reinterpret the source CSV.
+  LF, CRLF, CR and mixed record terminators are accepted. Empty physical lines
+  outside quoted fields are ignored, including leading/trailing lines. Quoted
+  embedded CR/LF and blank lines are preserved exactly; doubled quotes decode to
+  one quote. Unterminated quoted fields, characters after a closing quote, ragged
+  rows and duplicate headers fail. Quotes in a field not beginning with a quote
+  are literal text under this dialect. An optional initial UTF-8 BOM is ignored
+  by parsing but remains part of the recorded source-byte digest
+- Unquoted empty fields become null. Quoted empty string fields remain `""`,
+  distinct from null; empty numeric/boolean fields, quoted or not, become null.
+  Numeric conversion permits leading ASCII spaces/tabs (whitespace-only numeric
+  fields are null), but rejects trailing whitespace. Boolean `true`/`false` are
+  case-insensitive. Exact int64 values never pass through float64. Reopening
   is limited to the paired native IPC exports described above. No arbitrary IPC
   import, TSV, Parquet, FASTA, arbitrary code, SQL, joins or aggregate operations
   in this slice
@@ -270,7 +284,15 @@ catalog, daemon database, automatic restart recovery or background job.
 - CSV input at most 16 MiB, 1–64 columns with names at most 128 bytes; 16 retained
   datasets and a 64 MiB conservative retained-data charge per session (Polars
   estimates plus 17 bytes per cell for view/validity overhead). This is not a
-  process-memory ceiling: parsing, exports and copies require extra memory
+  process-memory ceiling: parsing, exports and copies require extra memory.
+  Before allocating any Polars columns, CSV preflight validates all complete
+  records and conversions, charging decoded string bytes, eight bytes per numeric
+  cell, packed boolean/validity bounds and 17 bytes per cell against the budget
+  remaining after existing datasets. Physical blank lines do not create rows or
+  evade this bound. Construction uses the same immutable bytes and decoder;
+  complete materialized row counts and retained charges are checked against the
+  validated plan. The bounded source snapshot and field scratch buffer are
+  temporary memory outside the retained-data charge
 - Reopening permits a JSON record up to 64 KiB and an IPC snapshot up to 65 MiB;
   IPC footer/message metadata is limited to 1 MiB per block, with at most 4096
   record batches and 4096 buffers per batch. Record/file paths are at most 1024
@@ -305,6 +327,12 @@ available separately. Biological ID parsing, table operations and transport are
 separate crates so future CLI, Python or other consumers can reuse the libraries.
 
 ## Validation
+
+Earlier development builds used different CSV parsers for preflight and loading.
+CR-only files could lose records, and physical blank lines could add null rows.
+Regenerate affected old imports from the original CSV with the corrected reader;
+reopening an existing export checks its saved bytes and record, but cannot
+reconstruct rows previously lost during parsing.
 
 Portable-bundle acceptance (SPEC T68) is distinct from BioV's paired-reopen test:
 move the four files away from the original data/output directories, make the
