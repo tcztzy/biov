@@ -266,3 +266,69 @@ Native references: [pyproject.toml](https://pixi.prefix.dev/latest/python/pyproj
 [lock files](https://pixi.prefix.dev/latest/workspace/lockfile/),
 [configuration](https://pixi.prefix.dev/latest/reference/pixi_configuration/),
 [execution](https://pixi.prefix.dev/latest/reference/cli/pixi/run/).
+
+## Planned tool lifecycle
+
+This section is a design and acceptance target, not a list of commands available
+today. Current setup and execution behavior is documented above. The next step is
+to make BioV own tool environments across tasks, so neither the researcher nor an
+agent has to remember where each tool was installed or built. See SPEC D6–D8.
+
+The useful distinction from [uv's tool model](https://docs.astral.sh/uv/concepts/tools/)
+is durable installation versus running without a persistent installation.
+The latter can still reuse a disposable cached environment. uv also separates
+[persistent tools, caches and command locations](https://docs.astral.sh/uv/reference/storage/).
+BioV should expose those ownership and retention distinctions across its supported
+biology tools, while continuing to use their native package managers and commands.
+
+### First scope
+
+Use a small set of existing locked Pixi tools on Linux x86_64. Add enough lifecycle
+control to find and inspect environments, reuse them across directories, update
+explicitly, uninstall selected installations and clean disposable content safely.
+Existing manifest/lock content-addressed workspaces are a starting point; they
+are not, by themselves, a complete installed-tool inventory or cleanup policy.
+Do not require every tool to support prebuilt binaries, containers and source
+builds. Choose one verified route per tool and report its platform prerequisites.
+Broader platform coverage and distributed management can follow demonstrated need.
+
+Keep catalog discovery (what a tool does, its inputs and outputs) distinct from
+installation discovery (what is actually installed here). Neither a successful
+installation nor a zero exit status establishes scientific validity. Existing
+identifier, native-file, coordinate, analysis-record and full-result reuse
+contracts continue to apply.
+
+### Acceptance cases before implementation
+
+1. On a fresh supported host, prepare and run a selected supported tool without
+   manually creating its environment. Report the actual source, version and
+   environment; missing prerequisites and unsupported platforms are explicit.
+2. Run the same locked tool from two unrelated analysis directories. Reuse the
+   same ready environment without rebuilding; preserve each caller's directory,
+   literal arguments and native exit status.
+3. Distinguish durable installation from cached on-demand execution in inspection.
+   Show owner, location, platform, resolved version/lock and readiness. Inspecting
+   inventory does not install tools; a project-owned environment is not silently
+   adopted as BioV-owned.
+4. An exact pin selects that version or fails. Different resolved requirements
+   stay isolated. Specify and test the precedence of an installed version, a
+   cached version and a fresh resolution for unpinned requests. Refresh and
+   upgrade are explicit; an upgrade respects constraints and does not rewrite a
+   project lock silently.
+5. Interrupted preparation never becomes a ready cache hit. A failed update leaves
+   the previous working installation usable and exposes the original diagnostic.
+6. Preview a selected uninstall or cache cleanup with ownership, paths and scope.
+   After authorization, remove only eligible BioV-owned content; keep active runs,
+   other retained installations, project environments, biological references,
+   model weights and saved analysis inputs/outputs intact. A cleared on-demand
+   environment can be recreated on the next run.
+7. Storage locations are inspectable and user-configurable. No silent global PATH
+   or shell-profile change, unrelated executable overwrite, or wrapper recursion
+   occurs. Tool selection must not depend on remembering a build directory.
+8. Re-run the existing representative two-step analysis and execution acceptance
+   cases. Lifecycle changes preserve native data, scientific checks, complete
+   result reuse and current command meanings.
+
+Finalize exact command names, status fields and test fixtures in T56 before
+implementation. This specification does not introduce a new CLI alias, package
+format, tool registry service or MCP deployment-management surface.

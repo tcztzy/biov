@@ -5,15 +5,21 @@ design; §T tracks its implementation and validation. Supported scope is stated
 explicitly rather than inferred from the broader design.
 
 ## §G GOAL
-Build high-performance bioinformatics infrastructure for LLM agents, with one
-MCP entry point for biological data and analysis. Users work with data and
-analyses; results remain data that the next analysis can use. Preserve complete
-data while showing agents bounded, understandable previews. Provide reusable
-data access, interval/sequence APIs and execution through Python and CLI as well,
-without requiring an agent or model. Use established scientific software for
-computation. Skills guide method selection and interpretation; repeatable data
-handling and checks belong in code. Task-specific orchestration and biological
-interpretation remain with the agent or workflow using BioV.
+Make BioV a biology-focused tool manager, especially for the workflows served by
+`uv tool` and `uvx`: find, install, run, reuse, inspect, update and remove tools
+without making users or agents remember where each task's environment was built.
+Agents can already install and build software; BioV's value is owning that
+software's lifecycle across tasks. Use existing package managers and scientific
+software rather than replace them.
+
+Keep biological meaning alongside this lifecycle: explicit inputs and outputs,
+reference versions, coordinates, units and scientific checks make tools useful
+together. Preserve complete data with bounded previews and reusable results.
+Provide biological data access, interval/sequence APIs and execution through
+Python, CLI and MCP where useful, without requiring an agent or model. Skills
+guide method selection and interpretation; repeatable handling and checks belong
+in code. Task-specific orchestration and biological interpretation remain with
+the agent or workflow using BioV.
 
 ## §C CONSTRAINTS
 - Python `>=3.12`; RuRanges only interval kernel; Biopython only sequence-algorithm backend
@@ -35,8 +41,10 @@ D1: Users select data and an analysis, then inspect or reuse its results. The
 MCP server provides analysis execution and result access using shared
 Python/CLI logic; the client need not supply a terminal tool. Routine analysis
 does not require users to choose package managers, cache paths or URI schemes.
-Deployment configuration remains operator-owned; analysis execution is distinct
-from the deployment-management tools excluded by V64.
+Deployment configuration remains operator-owned; routine tool lifecycle is a
+BioV product responsibility (D6–D8). Analysis execution remains distinct from
+deployment management; this design does not require new MCP management tools.
+V64 describes the current MCP surface.
 
 D2: Each supported analysis declares its inputs, outputs and the metadata needed
 to use them correctly. These requirements are inspectable by the caller and
@@ -133,6 +141,50 @@ and interruption behavior in acceptance cases before T52 implementation. Reuse
 existing API and format definitions where sufficient; a separate declaration
 format, reference encoding or record layout is not prescribed.
 
+D6: Own tool environments across tasks, not just the command that creates them.
+Offer durable installation for repeated use and on-demand execution without a
+persistent installation. On-demand environments may be cached and reused; they
+are disposable, not necessarily deleted after every run. Expose what is installed,
+where it lives, its source, resolved version/lock, platform and readiness. A tool
+catalog describes available tools and their inputs/outputs; an installed inventory
+describes actual local state. Reuse native manifests, locks and manager inspection
+rather than introduce a second dependency solver or duplicate package catalog.
+An environment is selected by its tool/dependency identity and platform, not the
+analysis directory. Explicit project environments remain supported and visibly
+project-owned; BioV does not silently adopt or delete them.
+
+D7: Preserve exact pins and existing locks; report the actual resolved version and
+source. Reuse a compatible installed environment before rebuilding. An unpinned
+request must have documented installed/cache selection and refresh behavior,
+rather than silently changing versions between tasks. Upgrades are explicit and
+respect requested constraints; failed preparation or upgrade must not replace a
+working installation with a partial one. Removal targets a known BioV-owned
+installation. Cache cleanup targets disposable, unused content and protects active
+runs and retained installations. Show locations, ownership and cleanup scope;
+allow users to select storage roots and authorize deletion. Tool installations,
+package/build/run caches, biological databases/model weights, and saved analysis
+inputs/outputs have separate retention rules. Removing software or its cache must
+not delete external data or results. Existing data-cache settings and native
+manager controls remain valid; exact new controls are not yet specified.
+
+D8: Start with a small local lifecycle slice using existing locked Pixi tools and
+one supported platform. Complete cross-task reuse, inventory, explicit update,
+uninstall and safe cache cleanup before adding more management layers. A tool
+needs one verified distribution route: community packages or official prebuilt
+binaries when suitable, a container when appropriate and available, or a pinned
+source build when necessary. These are alternatives, not mandatory backends for
+every tool. Record the route and prerequisites; unsupported platforms or missing
+build/container requirements fail clearly without silently changing sources.
+Installing container runtimes, system packages or modifying shell profiles is a
+separate user-controlled action. Prefer namespaced BioV entry points and native
+arguments; never overwrite an unrelated executable or resolve a wrapper back to
+itself. Preserve current `exec`, `setup`, `pixi` and whole-script `run` meanings
+until an explicit interface revision. Final lifecycle command names and optional
+short aliases remain undecided. Keep D2–D4's biological contracts; defer broader
+platform coverage, automatic backend switching and distributed environment
+management until needed. The focused acceptance cases are in the
+[software guide](docs/guides/environments.md#planned-tool-lifecycle).
+
 ## §I INTERFACES
 - api: `BioDataFrame.overlap(other, how, seqid_col, start_col, end_col, strand_col)` → selected self rows
 - api: `BioDataFrame.intersect(other, seqid_col, start_col, end_col, strand_col)` → clipped self rows per overlap pair
@@ -214,6 +266,9 @@ R15|PMC PDF access|the ID Converter identifies the current PMC version; cloud me
 R16|GEO files|Series matrices contain values with series/sample metadata; full SOFT preserves accession data; multiple matrices need explicit selection|https://www.ncbi.nlm.nih.gov/geo/info/download.html
 R17|ClinVar complete record|EFetch with rettype=vcv and is_variationid retrieves the complete variation XML|https://www.ncbi.nlm.nih.gov/clinvar/docs/programmatic_access/
 R18|dbSNP full data|RefSNP endpoint returns the full native variation JSON by rs number|https://api.ncbi.nlm.nih.gov/variation/v0/
+
+R19|uv tool lifecycle|uvx is uv tool run; cached run environments are disposable, installed environments persist until uninstall; explicit versions, refresh and upgrades govern reuse|https://docs.astral.sh/uv/concepts/tools/
+R20|uv storage|persistent tools, disposable cache and command directories are distinct and inspectable/configurable|https://docs.astral.sh/uv/reference/storage/
 
 ## §V INVARIANTS
 V1: intervals use 0-based, end-exclusive `[start,end)`; integer `0 ≤ start < end`; touching boundaries ≠ overlap
@@ -347,6 +402,9 @@ T53|x|validate the real five-protein two-step example in locked macOS ARM64 Pixi
 T54|x|migrate existing GEEPilot deterministic CRISPR computations, Docker report parsing, Azimuth runner and assets into the BioV distribution; replace removed BLAT API with native execution and verify imports, native argv, failure propagation, cache reuse, inputs and package contents|V60,V62,V65,V67,V73
 
 T55|x|migrate shared GEEPilot BWA-to-BAM execution into a public BioV API, remove the external PATH requirement, and test native argv, sort/index results and failure handling with SAM fixtures|I.api,V62,V65,V74
+
+T56|planned|fix the first local tool-lifecycle command surface and acceptance fixtures against D6–D8; distinguish currently supported behavior from missing inventory/update/removal/cleanup capabilities before implementation|D6,D7,D8
+T57|planned|implement and validate the bounded lifecycle slice after T56, reusing existing manifests, locks and managers; preserve biological and current execution contracts|D2,D3,D4,D6,D7,D8
 
 ## §B BUGS
 id|date|cause|fix

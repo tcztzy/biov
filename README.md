@@ -3,15 +3,17 @@ BioV
 ![Python Version from PEP 621 TOML](https://img.shields.io/python/required-version-toml?tomlFilePath=https%3A%2F%2Fraw.githubusercontent.com%2Ftcztzy%2Fbiov%2Fmain%2Fpyproject.toml)
 ![PyPI - Downloads](https://img.shields.io/pypi/dd/biov)
 
-BioV builds high-performance bioinformatics infrastructure for AI agents. Its
-Python APIs provide genomic interval and sequence operations and access to
-identifier-backed data; its MCP server exposes identifier discovery, provider
-records and [local managed Python analysis](docs/guides/analysis.md) with saved
-results; its CLI also runs scripts directly or submits them to LSF.
+BioV aims to be a biology-focused tool manager: install or run a tool, reuse its
+environment across tasks, and know where it lives and how to maintain it. Its
+direction follows `uv tool` and `uvx`, while retaining the biological input/output
+contracts needed to use scientific tools correctly together.
 
-BioV provides reusable capabilities that work without an agent. Task-specific
-tool orchestration, decisions about the next analysis step, and biological
-interpretation belong to the agent or workflow project using BioV.
+Today BioV provides locked scientific environments and on-demand execution,
+identifier-backed data, interval/sequence APIs and local managed analysis with
+saved results. A complete tool lifecycle, including unified inventory, upgrades,
+uninstall and cleanup, is [planned](docs/guides/environments.md#planned-tool-lifecycle).
+These capabilities work without an agent; task-specific orchestration, method
+selection and biological interpretation belong to the caller or its skills.
 
 ## Highlights
 

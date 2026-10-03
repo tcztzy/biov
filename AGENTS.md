@@ -2,9 +2,12 @@
 
 ## Project scope
 
-BioV builds high-performance bioinformatics infrastructure for AI agents. It
-provides reusable biological data access, genomic interval and sequence APIs,
-and execution interfaces that work without an agent or model.
+BioV aims to own the lifecycle of biological tools and their environments across
+tasks, following the install/run distinction of `uv tool` and `uvx`. Existing
+package managers provide resolution and installation. Biological input/output
+contracts, reusable data access, interval/sequence APIs and execution remain
+part of BioV and work without an agent or model. Distinguish the planned lifecycle
+in SPEC D6–D8 from currently implemented interfaces.
 
 - Keep task-specific tool orchestration, analysis decisions, and biological
   interpretation in agent or workflow projects that use BioV.
