@@ -45,7 +45,11 @@ def require(condition: bool, detail: object) -> None:
 
 
 def main() -> None:
-    """Preserve CLI output, input identities, settings, and independent checks."""
+    """Preserve CLI output, input identities, settings, and independent checks.
+
+    Raises:
+        ValueError: If the TSV header is missing or scientific checks fail.
+    """
     output = Path(sys.argv[1]).resolve()
     output.mkdir(parents=True, exist_ok=True)
     fixture = Path(__file__).resolve().parents[1] / "tests" / "fixtures" / "goatools"
@@ -98,8 +102,10 @@ def main() -> None:
     result.check_returncode()
     with (output / "results.tsv").open() as stream:
         reader = csv.DictReader(stream, delimiter="\t")
-        require(reader.fieldnames is not None, "Missing TSV header")
-        reader.fieldnames = [name.removeprefix("# ") for name in reader.fieldnames]
+        fieldnames = reader.fieldnames
+        if fieldnames is None:
+            raise ValueError("GOATOOLS validation failed: Missing TSV header")
+        reader.fieldnames = [name.removeprefix("# ") for name in fieldnames]
         records = {row["GO"]: row for row in reader}
     require(set(records) == {"GO:0008150", "GO:9000001", "GO:9000002"}, records)
     expected = {

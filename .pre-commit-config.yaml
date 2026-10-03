@@ -5,8 +5,8 @@ repos:
     rev: v6.0.0
     hooks:
     -   id: trailing-whitespace
-        # Preserve the upstream GenBank fixture byte for byte.
-        exclude: ^(renv/activate\.R|tests/data/cor6_6\.gb)$
+        # Preserve upstream fixture bytes; TSV trailing tabs are empty cells.
+        exclude: ^(renv/activate\.R|tests/data/cor6_6\.gb|tests/fixtures/goatools/expected\.tsv)$
     -   id: end-of-file-fixer
         # Machine-managed upstream response body; bytes must stay identical to
         # what `biov update` writes (SPEC V26/V46). Preserve the GenBank fixture too.
