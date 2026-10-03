@@ -145,25 +145,64 @@ pub fn length(value: &str, kind: Kind) -> Result<usize, SequenceError> {
 /// BioV's explicit convention. Sixths make the IUPAC weights exact until the
 /// final f64 division; a u128 sum cannot overflow for an addressable Rust string.
 pub fn weighted_gc_fraction(value: &str, kind: Kind) -> Result<f64, SequenceError> {
+    Ok(nucleotide_gc_counts(value, kind)?.weighted_gc_fraction())
+}
+
+/// Exact additive nucleotide GC counts. The weighted numerator uses sixths,
+/// preserving exact IUPAC probabilities when independently read chunks are joined.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct NucleotideGcCounts {
+    pub length: u64,
+    pub canonical_base_count: u64,
+    pub gc_base_count: u64,
+    pub weighted_gc_sixths: u128,
+}
+
+impl NucleotideGcCounts {
+    /// Literal G/C among only canonical A/C/G/T (or A/C/G/U for RNA).
+    /// An all-ambiguous or empty sequence has no canonical fraction.
+    pub fn gc_fraction(self) -> Option<f64> {
+        (self.canonical_base_count != 0)
+            .then(|| self.gc_base_count as f64 / self.canonical_base_count as f64)
+    }
+
+    /// Equal-weight IUPAC GC probability among all symbols; empty is zero.
+    pub fn weighted_gc_fraction(self) -> f64 {
+        if self.length == 0 {
+            0.0
+        } else {
+            self.weighted_gc_sixths as f64 / (6.0 * self.length as f64)
+        }
+    }
+}
+
+/// Validate the declared alphabet and compute reusable exact GC numerators.
+pub fn nucleotide_gc_counts(value: &str, kind: Kind) -> Result<NucleotideGcCounts, SequenceError> {
     if kind == Kind::Protein {
         return Err(SequenceError::NotNucleic);
     }
     let normalized = normalize(value, kind)?;
-    if normalized.is_empty() {
-        return Ok(0.0);
-    }
-    let sixths: u128 = normalized
-        .bytes()
-        .map(|symbol| match symbol {
+    let mut counts = NucleotideGcCounts {
+        length: normalized.len() as u64,
+        ..NucleotideGcCounts::default()
+    };
+    for symbol in normalized.bytes() {
+        if matches!(symbol, b'A' | b'C' | b'G' | b'T' | b'U') {
+            counts.canonical_base_count += 1;
+        }
+        if matches!(symbol, b'C' | b'G') {
+            counts.gc_base_count += 1;
+        }
+        counts.weighted_gc_sixths += match symbol {
             b'G' | b'C' | b'S' => 6_u128,
             b'A' | b'T' | b'U' | b'W' => 0,
             b'R' | b'Y' | b'K' | b'M' | b'N' => 3,
             b'B' | b'V' => 4,
             b'D' | b'H' => 2,
             _ => unreachable!("normalize accepts only the declared nucleotide alphabet"),
-        })
-        .sum();
-    Ok(sixths as f64 / (6.0 * normalized.len() as f64))
+        };
+    }
+    Ok(counts)
 }
 
 /// Compute validated lengths in stable batch order with nulls intact.
@@ -284,5 +323,41 @@ mod tests {
             weighted_gc_fraction_batch(&values, Kind::Dna).unwrap(),
             vec![None, Some(0.0), Some(5.0 / 6.0)]
         );
+    }
+
+    #[test]
+    fn exact_gc_counts_preserve_ambiguity_denominators_and_chunk_additivity() {
+        let all = nucleotide_gc_counts("acgtryswkmbdhvnGCN", Kind::Dna).unwrap();
+        assert_eq!(all.length, 18);
+        assert_eq!(all.canonical_base_count, 6);
+        assert_eq!(all.gc_base_count, 4);
+        assert_eq!(all.weighted_gc_sixths, 60);
+        assert_eq!(all.gc_fraction(), Some(2.0 / 3.0));
+        assert_eq!(all.weighted_gc_fraction(), 5.0 / 9.0);
+        let a = nucleotide_gc_counts("acgtrysw", Kind::Dna).unwrap();
+        let b = nucleotide_gc_counts("kmbdhvnGCN", Kind::Dna).unwrap();
+        assert_eq!(
+            a.weighted_gc_sixths + b.weighted_gc_sixths,
+            all.weighted_gc_sixths
+        );
+        assert_eq!(
+            a.canonical_base_count + b.canonical_base_count,
+            all.canonical_base_count
+        );
+        let ambiguous = nucleotide_gc_counts("nSWbDhV", Kind::Dna).unwrap();
+        assert_eq!(ambiguous.gc_fraction(), None);
+        assert_eq!(ambiguous.weighted_gc_fraction(), 0.5);
+        assert_eq!(
+            nucleotide_gc_counts("", Kind::Dna).unwrap().gc_fraction(),
+            None
+        );
+        assert_eq!(
+            nucleotide_gc_counts("uGc", Kind::Rna)
+                .unwrap()
+                .gc_fraction(),
+            Some(2.0 / 3.0)
+        );
+        assert!(nucleotide_gc_counts("uGc", Kind::Dna).is_err());
+        assert!(nucleotide_gc_counts("G", Kind::Protein).is_err());
     }
 }

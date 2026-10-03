@@ -8,8 +8,8 @@ use std::{
 };
 
 use biov_data::{
-    DatasetStore, ExportRequest, OpenRequest, PreviewRequest, QueryRequest, ReadArtifactRequest,
-    ReleaseRequest, ReopenRequest,
+    DatasetStore, ExportRequest, FastaWindowsRequest, OpenRequest, PreviewRequest, QueryRequest,
+    ReadArtifactRequest, ReleaseRequest, ReopenRequest,
 };
 use biov_prepared::{PrepareFastaRequest, PreparedStore};
 use biov_storage::{NativeStore, RegisterRequest, ResolveRequest, StorageError};
@@ -168,6 +168,24 @@ impl DatasetServer {
                 }
             },
         )
+    }
+
+    #[tool(
+        description = "Compute a complete typed nonoverlapping GC window table for one explicitly selected sequence of an exact existing verified native/prepared RefSeq FASTA. Positive window_size is capped at 1 MiB; coordinates are 0-based half-open with an explicit final partial window. Canonical GC excludes ambiguity and is null with no canonical bases; weighted GC uses biov-core IUPAC all-base weighting. Returns a dataset session handle and bounded whole-sequence summary; reads capped indexed windows, never returns sequence bytes or applies workflow thresholds. Requires --store-root.",
+        annotations(read_only_hint = true, open_world_hint = false)
+    )]
+    async fn dataset_fasta_windows(
+        &self,
+        Parameters(request): Parameters<FastaWindowsRequest>,
+    ) -> Result<CallToolResult, rmcp::ErrorData> {
+        let Some(prepared) = self.prepared_store.as_ref().map(Arc::clone) else {
+            return Ok(failure(
+                "prepared storage is not configured; start MCP with --store-root DIR",
+            ));
+        };
+        Ok(self
+            .execute(move |store| store.fasta_windows(&prepared, request))
+            .await)
     }
 
     #[tool(

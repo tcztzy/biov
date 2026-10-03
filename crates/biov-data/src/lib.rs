@@ -17,6 +17,8 @@ use uuid::Uuid;
 
 mod bundle;
 mod csv_input;
+mod fasta_windows;
+pub use fasta_windows::FastaWindowsRequest;
 mod reopen;
 pub use reopen::ReopenRequest;
 use reopen::ReopenVerification;
@@ -352,7 +354,7 @@ impl DatasetStore {
         let mut hasher = Sha256::new();
         checked(std::io::copy(temporary.as_file_mut(), &mut hasher))?;
         let digest = format!("{:x}", hasher.finalize());
-        let record = json!({"record_version": 2, "artifact_id": artifact_id, "format": "arrow_ipc", "file": filename, "bytes": bytes, "sha256": digest, "row_count": frame.height(), "schema": schema(&frame), "scientific_metadata": dataset.metadata, "metadata_status": "caller_declared_or_unknown_not_provider_verified", "provenance": dataset.provenance, "reopen_verification": dataset.reopen_verification, "software": {"biov": env!("CARGO_PKG_VERSION"), "polars": "0.51.0"}});
+        let record = json!({"record_version": if dataset.provenance["sequence_origin"].is_object() { 3 } else { 2 }, "artifact_id": artifact_id, "format": "arrow_ipc", "file": filename, "bytes": bytes, "sha256": digest, "row_count": frame.height(), "schema": schema(&frame), "scientific_metadata": dataset.metadata, "metadata_status": "caller_declared_or_unknown_not_provider_verified", "provenance": dataset.provenance, "reopen_verification": dataset.reopen_verification, "software": {"biov": env!("CARGO_PKG_VERSION"), "polars": "0.51.0"}});
         let record_bytes = checked(serde_json::to_vec_pretty(&record))?;
         if record_bytes.len() as u64 > reopen::MAX_RECORD_BYTES {
             return Err(err("export record exceeds bounded reopen byte limit"));

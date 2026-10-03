@@ -5,7 +5,9 @@
 //! See the crate README for limits, recipe identity and portable closure.
 mod fasta;
 mod fsutil;
+mod metrics;
 mod types;
+pub use metrics::*;
 pub use types::*;
 
 use biov_identifiers::{IdentifierRef, Namespace};
@@ -67,9 +69,7 @@ impl PreparedStore {
         if exists {
             // Regenerating into hash-only sinks verifies lineage as well as saved
             // hashes: editing both an index and its provenance cannot invent a hit.
-            let indexed = fasta::index(source, std::io::sink(), std::io::sink())?;
-            let expected = provenance(&input, &recipe_id, indexed)?;
-            verify_bundle(&target, &expected)?;
+            let expected = verify_input_bundle(&input, &recipe_id, &target, source)?;
             self.revalidate(&request, &input)?;
             return self.result(&input, &expected, true);
         }
@@ -255,6 +255,20 @@ impl PreparedStore {
                 .into(),
         })
     }
+}
+
+/// Shared deep verification for existing preparation and analysis. Regeneration
+/// is into hash-only sinks and never publishes or repairs absent/corrupt outputs.
+fn verify_input_bundle(
+    input: &Input,
+    recipe_id: &str,
+    target: &Path,
+    source: fs::File,
+) -> Result<FastaProvenance, PreparedError> {
+    let indexed = fasta::index(source, std::io::sink(), std::io::sink())?;
+    let expected = provenance(input, recipe_id, indexed)?;
+    verify_bundle(target, &expected)?;
+    Ok(expected)
 }
 
 impl FastaRecipe {

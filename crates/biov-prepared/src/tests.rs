@@ -113,6 +113,279 @@ fn copy_tree(from: &Path, to: &Path) {
         }
     }
 }
+
+fn metrics_request(
+    fasta: PrepareFastaRequest,
+    prepared: &PreparedFasta,
+    sequence_id: &str,
+    window_size: u64,
+) -> FastaWindowMetricsRequest {
+    FastaWindowMetricsRequest {
+        reference: fasta.reference,
+        snapshot_id: fasta.snapshot_id,
+        source_path: fasta.source_path,
+        recipe_id: prepared.recipe_id.clone(),
+        sequence_id: sequence_id.into(),
+        window_size,
+    }
+}
+
+#[test]
+fn window_metrics_stream_iupac_case_wrapping_and_same_pass_whole_summary() {
+    let fixture = Fixture::new();
+    let fasta = b">0001:alt description\r\nacgtry\r\nswkmbd\r\nhvnGCN\r\n>other\r\nGGG";
+    let request = fixture.register(fasta);
+    let prepared = fixture.store().prepare_fasta(request.clone()).unwrap();
+    let selection = fixture
+        .store()
+        .preflight_fasta_window_metrics(metrics_request(request, &prepared, "0001:alt", 5))
+        .unwrap();
+    assert_eq!(selection.length, 18);
+    assert_eq!(selection.window_row_count, 4);
+    assert_eq!(selection.source_bytes, fasta.len() as u64);
+    assert_eq!(selection.recipe_id, prepared.recipe_id);
+    let mut windows = Vec::new();
+    let summary = selection.stream_windows(|row| windows.push(row)).unwrap();
+    assert_eq!(
+        windows
+            .iter()
+            .map(|row| (row.start, row.end, row.length, row.is_full_window))
+            .collect::<Vec<_>>(),
+        vec![
+            (0, 5, 5, true),
+            (5, 10, 5, true),
+            (10, 15, 5, true),
+            (15, 18, 3, false)
+        ]
+    );
+    assert_eq!(
+        windows
+            .iter()
+            .map(|row| row.gc_fraction)
+            .collect::<Vec<_>>(),
+        vec![Some(0.5), None, None, Some(1.0)]
+    );
+    assert_eq!(
+        windows
+            .iter()
+            .map(|row| row.weighted_gc_fraction)
+            .collect::<Vec<_>>(),
+        vec![0.5, 0.5, 0.5, 5.0 / 6.0]
+    );
+    assert!(windows.iter().all(|row| row.sequence_id == "0001:alt"));
+    assert_eq!(summary.sequence_id, "0001:alt");
+    assert_eq!(summary.length, 18);
+    assert_eq!(summary.canonical_base_count, 6);
+    assert_eq!(summary.gc_base_count, 4);
+    assert_eq!(summary.gc_fraction, Some(2.0 / 3.0));
+    assert_eq!(summary.weighted_gc_fraction, 5.0 / 9.0);
+    assert_eq!(fs::read(prepared.fasta.execution_host_path).unwrap(), fasta);
+}
+
+#[test]
+fn window_metrics_exact_multiple_and_all_ambiguous_summary_are_explicit() {
+    let fixture = Fixture::new();
+    let request = fixture.register(b">allN\nNNnn\nNNnn\n");
+    let prepared = fixture.store().prepare_fasta(request.clone()).unwrap();
+    let selection = fixture
+        .store()
+        .preflight_fasta_window_metrics(metrics_request(request, &prepared, "allN", 4))
+        .unwrap();
+    assert_eq!(selection.window_row_count, 2);
+    let mut windows = Vec::new();
+    let summary = selection.stream_windows(|row| windows.push(row)).unwrap();
+    assert!(windows.iter().all(|row| row.is_full_window));
+    assert!(windows.iter().all(|row| row.gc_fraction.is_none()));
+    assert_eq!(summary.gc_fraction, None);
+    assert_eq!(summary.canonical_base_count, 0);
+    assert_eq!(summary.gc_base_count, 0);
+    assert_eq!(summary.weighted_gc_fraction, 0.5);
+}
+
+#[test]
+fn window_metrics_missing_preparation_is_read_only_and_never_created() {
+    let fixture = Fixture::new();
+    let request = fixture.register(FASTA);
+    let store = fixture.store();
+    let recipe_id = store.input(&request).unwrap().recipe.id().unwrap();
+    let before = fs::read_dir(&fixture.root).unwrap().count();
+    let result = store.preflight_fasta_window_metrics(FastaWindowMetricsRequest {
+        reference: request.reference,
+        snapshot_id: request.snapshot_id,
+        source_path: request.source_path,
+        recipe_id,
+        sequence_id: "0001".into(),
+        window_size: 2,
+    });
+    assert!(matches!(result, Err(PreparedError::InputUnavailable(_))));
+    assert_eq!(fs::read_dir(&fixture.root).unwrap().count(), before);
+    assert!(!fixture.root.join("prepared").exists());
+    // Native registration already created its own empty staging parent.
+    assert_eq!(
+        fs::read_dir(fixture.root.join(".staging")).unwrap().count(),
+        0
+    );
+}
+
+#[test]
+fn window_metrics_request_deserialization_is_flat_and_rejects_unknown_fields() {
+    let value = serde_json::json!({
+        "reference": REFERENCE, "snapshot_id": format!("sha256-{}", "a".repeat(64)),
+        "source_path": SOURCE_PATH, "recipe_id": format!("sha256-{}", "b".repeat(64)),
+        "sequence_id": "0001", "window_size": 3,
+    });
+    let decoded: FastaWindowMetricsRequest = serde_json::from_value(value.clone()).unwrap();
+    assert_eq!(decoded.reference, REFERENCE);
+    assert_eq!(decoded.window_size, 3);
+    assert_eq!(serde_json::to_value(decoded).unwrap(), value);
+    let mut unknown = value;
+    unknown["unexpected"] = serde_json::json!(true);
+    assert!(serde_json::from_value::<FastaWindowMetricsRequest>(unknown).is_err());
+}
+
+#[test]
+fn window_metrics_invalid_identity_selection_and_bounds_reject() {
+    let fixture = Fixture::new();
+    let (request, prepared) = fixture.prepare();
+    let valid = metrics_request(request, &prepared, "0001", 2);
+    for recipe in [
+        "sha256-zero".to_owned(),
+        format!("sha256-{}", "0".repeat(64)),
+        format!("sha256-{}", "A".repeat(64)),
+    ] {
+        let mut request = valid.clone();
+        request.recipe_id = recipe;
+        assert!(matches!(
+            fixture.store().preflight_fasta_window_metrics(request),
+            Err(PreparedError::InvalidInput(_))
+        ));
+    }
+    for id in [
+        "",
+        "0001 description",
+        "0001:1-2",
+        "00001",
+        "Chr2",
+        "chr2\n",
+        "é",
+    ] {
+        let mut request = valid.clone();
+        request.sequence_id = id.into();
+        assert!(matches!(
+            fixture.store().preflight_fasta_window_metrics(request),
+            Err(PreparedError::InvalidInput(_))
+        ));
+    }
+    let mut request = valid.clone();
+    request.reference = "refseq.gcf:GCF_000005845".into();
+    assert!(matches!(
+        fixture.store().preflight_fasta_window_metrics(request),
+        Err(PreparedError::InvalidInput(_))
+    ));
+    let mut request = valid.clone();
+    request.snapshot_id = "latest".into();
+    assert!(matches!(
+        fixture.store().preflight_fasta_window_metrics(request),
+        Err(PreparedError::InvalidInput(_))
+    ));
+    let mut request = valid.clone();
+    request.source_path = "../outside.fna".into();
+    assert!(matches!(
+        fixture.store().preflight_fasta_window_metrics(request),
+        Err(PreparedError::InvalidInput(_))
+    ));
+    let mut request = valid.clone();
+    request.source_path = "ncbi_dataset/data/assembly_data_report.jsonl".into();
+    assert!(matches!(
+        fixture.store().preflight_fasta_window_metrics(request),
+        Err(PreparedError::InvalidInput(_))
+    ));
+    let mut request = valid.clone();
+    request.window_size = 0;
+    assert!(matches!(
+        fixture.store().preflight_fasta_window_metrics(request),
+        Err(PreparedError::InvalidInput(_))
+    ));
+    let mut request = valid;
+    request.window_size = MAX_WINDOW_BASES + 1;
+    assert!(matches!(
+        fixture.store().preflight_fasta_window_metrics(request),
+        Err(PreparedError::Limit(_))
+    ));
+}
+
+#[test]
+fn window_metrics_source_and_prepared_corruption_reject_before_and_after_emission() {
+    for corrupt_source in [false, true] {
+        let fixture = Fixture::new();
+        let (request, prepared) = fixture.prepare();
+        let selection = fixture
+            .store()
+            .preflight_fasta_window_metrics(metrics_request(request.clone(), &prepared, "0001", 2))
+            .unwrap();
+        let mut emitted = 0;
+        let result = selection.stream_windows(|_| {
+            emitted += 1;
+            if emitted == 1 {
+                if corrupt_source {
+                    let mut source = FASTA.to_vec();
+                    source[18] = b'T';
+                    fs::write(&prepared.fasta.execution_host_path, source).unwrap();
+                } else {
+                    fs::write(&prepared.dictionary.execution_host_path, b"modified").unwrap();
+                }
+            }
+        });
+        assert!(
+            matches!(result, Err(PreparedError::Corrupt(_))),
+            "{result:?}"
+        );
+        assert!(fixture
+            .store()
+            .preflight_fasta_window_metrics(metrics_request(request, &prepared, "0001", 2),)
+            .is_err());
+    }
+}
+
+#[test]
+fn window_metrics_caps_each_query_across_a_sequence_larger_than_the_cap() {
+    let fixture = Fixture::new();
+    let mut fasta = b">long\n".to_vec();
+    let line = vec![b'a'; IO_BUFFER_BYTES];
+    for _ in 0..MAX_WINDOW_BASES as usize / IO_BUFFER_BYTES + 1 {
+        fasta.extend_from_slice(&line);
+        fasta.push(b'\n');
+    }
+    fasta.extend_from_slice(b"gcn");
+    let request = fixture.register(&fasta);
+    let prepared = fixture.store().prepare_fasta(request.clone()).unwrap();
+    let selection = fixture
+        .store()
+        .preflight_fasta_window_metrics(metrics_request(
+            request,
+            &prepared,
+            "long",
+            MAX_WINDOW_BASES,
+        ))
+        .unwrap();
+    assert_eq!(selection.window_row_count, 2);
+    let mut windows = Vec::new();
+    let summary = selection.stream_windows(|row| windows.push(row)).unwrap();
+    assert_eq!(windows[0].length, MAX_WINDOW_BASES);
+    assert!(windows[0].is_full_window);
+    assert_eq!(windows[1].length, IO_BUFFER_BYTES as u64 + 3);
+    assert!(!windows[1].is_full_window);
+    assert_eq!(
+        summary.length,
+        MAX_WINDOW_BASES + IO_BUFFER_BYTES as u64 + 3
+    );
+    assert_eq!(summary.gc_base_count, 2);
+    assert_eq!(summary.canonical_base_count, summary.length - 1);
+    assert_eq!(
+        summary.weighted_gc_fraction,
+        15.0 / (6.0 * summary.length as f64)
+    );
+}
 #[test]
 fn construction_is_read_only_and_requires_existing_trusted_root() {
     let fixture = Fixture::new();
@@ -397,10 +670,20 @@ fn exact_portable_closure_can_move_without_original_source_or_store() {
     copy_tree(&fixture.root.join(&prepared), &moved.join(prepared));
     fs::remove_dir_all(&fixture.sources).unwrap();
     fs::remove_dir_all(&fixture.root).unwrap();
-    let moved_result = PreparedStore::new(&moved)
-        .unwrap()
-        .prepare_fasta(request)
+    let moved_store = PreparedStore::new(&moved).unwrap();
+    let before = fs::read_dir(&moved).unwrap().count();
+    let selection = moved_store
+        .preflight_fasta_window_metrics(metrics_request(request.clone(), &result, "0001", 4))
         .unwrap();
+    let mut windows = Vec::new();
+    let summary = selection.stream_windows(|row| windows.push(row)).unwrap();
+    assert_eq!(summary.length, 6);
+    assert_eq!(summary.gc_fraction, Some(0.5));
+    assert_eq!(summary.weighted_gc_fraction, 0.5);
+    assert_eq!(windows.len(), 2);
+    assert_eq!((windows[1].start, windows[1].end), (4, 6));
+    assert_eq!(fs::read_dir(&moved).unwrap().count(), before);
+    let moved_result = moved_store.prepare_fasta(request).unwrap();
     assert!(moved_result.reused);
     assert_eq!(moved_result.recipe_id, result.recipe_id);
     assert_eq!(
