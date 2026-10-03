@@ -15,8 +15,14 @@ in SPEC D6–D8 from currently implemented interfaces.
   useful. The MCP server provides identifier discovery, provider records and
   local managed Python analysis with saved results; it is not the implementation
   boundary for every Python API.
-- Use established analysis libraries and tools for their scientific algorithms.
-  Add BioV code for reusable data contracts, access, and execution needs.
+- Target a shared Rust core and thin Python interface as specified in
+  SPEC D9–D11; do not describe the migration as already implemented. Breaking
+  API/type changes are acceptable during active development; document
+  them and preserve scientific semantics/data integrity rather than adding legacy
+  pandas or SeqRecord compatibility layers.
+- Prefer established scientific libraries/tools. BioV-owned Rust implementations
+  for uncovered algorithms require independent scientific checks and provenance,
+  not merely compilation or agreement with AI-generated expectations.
 - Treat high performance as a design goal. Describe the Rust-backed interval
   implementation accurately, and make quantitative speed claims only when
   supported by reproducible benchmarks.
