@@ -350,7 +350,7 @@ moved files, checks that BioV is absent, and blocks attempted network/process/
 SQLite access through a Python audit hook. It is distinct from the pytest driver
 and does not use the MCP response as its data dictionary. The installed Linux
 acceptance passed with direct filtering of the exported `LargeUtf8` table,
-without casts or BioV helpers. All 50 `biov-data` tests and 11 actual MCP
+without casts or BioV helpers. All 50 `biov-data` tests and 17 actual MCP
 subprocess cases also pass; other platforms and native client integrations
 remain outside this validation claim.
 
@@ -383,7 +383,7 @@ BIOV_TEST_BINARY="$(command -v biov-rs)" cargo test -p biov-cli --test mcp_stdio
 ### Verified implementation scope (2026-10-03)
 
 After the CSV parser consistency fix, the current suite passes 50 `biov-data`
-tests and 89 workspace tests/doctests. All 11 real MCP subprocess cases pass against an
+tests and 130 workspace tests/doctests. All 17 real MCP subprocess cases pass against an
 independently installed Linux x86_64 binary launched outside the checkout with
 an empty PATH. This includes restarting between export and reuse, full-byte
 reconstruction and typed readback. Adversarial metadata tests refresh the JSON

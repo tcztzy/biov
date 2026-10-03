@@ -7,6 +7,8 @@ extension are implemented and validated in the documented Linux source-built
 scope (T63–T67). Supported scope is stated explicitly rather than inferred from
 the broader design. D0 applies to every cache/data design; portable native-result
 companions have their own acceptance gate (T68), with legacy migration gaps (T69).
+D13 specifies the separate bounded native-source snapshot slice and its acceptance
+gates (T70–T71); five-source research does not imply five implemented adapters.
 
 ## §G GOAL
 **Non-negotiable: all cache and data designs must let an agent quickly understand
@@ -735,11 +737,181 @@ Feature: Complete local datasets through Rust MCP and Arrow IPC
       | reads an artifact modified since export        |
 ```
 
+D13: Native storage preserves complete provider packages as immutable, independently
+usable filesystem snapshots. The initial `biov-storage` Rust library copies an
+already-present package from an explicit trusted source root into a separate
+trusted store root. It never moves, deletes, hardlinks or rewrites original source
+files. Native metadata/layouts remain authoritative; a small operational receipt,
+relative checksum inventory and wrapper README add only missing navigation,
+identity and registration facts. The README directly lists analysis entry files,
+representations and scope so the next reader need not reverse engineer the package.
+The complete data must remain analyzable without BioV, its database, an original
+source path or network. See the [native-storage guide](docs/guides/native-storage.md).
+
+The first semantic adapter is materialized NCBI Datasets RefSeq: validate an exact
+canonical versioned GCF against the native catalog, allow accessionless report
+groups, resolve catalog paths relative to `ncbi_dataset/data`, require native
+README/checksums/catalog, verify catalog member sizes and provider MD5 entries,
+and expose only actual available representations. This does not validate all
+biological relationships in FASTA/GFF. PDB registration is explicitly
+caller-declared identity, entry or assembly scope and representation/path mappings;
+syntax, paths and bytes are checked, while mmCIF semantics and claimed biological
+identity are not. UniProt, AlphaFold and GEO semantic adapters remain planned.
+
+Native-source inventory identity includes the complete sorted relative file and
+directory tree, sizes and file SHA-256 values using a documented canonical
+encoding. Wrapper files do not affect that identity. The readable layout is
+`artifacts/<namespace>/<canonical accession>/snapshots/sha256-<full digest>/` with
+`source/`, `acquisition.json`, `checksums.sha256` and `README.md`. Receipt version,
+registration time, biological accession version and provider version/release facts
+are distinct. Unknown original acquisition URL, time and client stay null; no
+historical source location is required. Conflicting declarations for identical
+source content fail without mutating the saved receipt.
+
+Copy and verify in staging, then publish atomically without replacing a winner.
+Use the documented local locking and no-replace filesystem primitive. Concurrent
+identical copies reuse a verified existing snapshot; changed annotation under the
+same assembly accession creates a new snapshot. Interrupted/partial stages are
+never ready. An unsuccessful registration leaves the prior valid snapshot intact.
+This is a trusted local-filesystem boundary, not protection from hostile writers
+or proof of multi-host/distributed publication semantics.
+
+Offline resolution scans the filesystem, checks recorded source bytes and returns
+ordinary host paths plus portable store-relative paths and bounded snapshot
+summaries. No DNS or download is attempted. Missing identity, multiple matching
+snapshots, unavailable representation and corrupted data are explicit outcomes.
+Selection is never implicit newest-by-mtime; callers pin an exact snapshot when
+more than one matches. Moving the store must allow fresh discovery with no
+original source root. No durable discovery index exists in this slice, so this
+is reconstructed filesystem discovery, not a database rebuild feature.
+
+Source copies/hashes use bounded chunks, but metadata/traversal/output cardinality
+have explicit limits. Full verification on resolve may be expensive. This does
+not expand D12's independent 64 MiB retained-data charge, guarantee peak memory,
+provide lazy analytical scans, or establish large-table/distributed support.
+Downloads, archive acquisition/hydration, automatic cache/import migration,
+external registration, aliases, GC, quotas and a persistent index remain separate
+future work. Original Python artifact paths retain their existing behavior.
+
+An analysis-ready derived layer is planned separately from preserved native
+sources. It should expose useful complete tables, indices and relationships with
+input hashes, actual commands/software, schemas, units/coordinates and unknowns.
+The planned layers are acquired native data, prepared/materialized analysis-ready
+views and durable results. Transform identity includes input hashes, code/tool
+versions, parameters, seeds and output-affecting dependencies; output SHA-256 is
+separate. Nondeterminism or uncaptured external state prevents deterministic-reuse
+claims. Prepared views need row meaning, joins/shard order and null semantics.
+Examples include RefSeq genome/annotation indices, GEO expression/sample/probe
+views retaining MAS5 meaning and multi-mapping, and PDB entry/assembly views.
+Reuse immutable raw references without mandatory payload duplication. Portable
+export must explicitly materialize dependencies or state its output-only scope;
+current registration does not convert formats or rewrite custom metadata. Future
+metadata/scan/indexed/materialize interfaces require a memory budget and moved-
+bundle/cache-invalidation acceptance; Arrow is not a universal conversion target
+for FASTA/BAM or other domain-native representations.
+
+Preservation is separate from decoding: a future generic file catalog may keep
+opaque formats with explicit reader capabilities or unsupported-decoding status.
+Never automatically unpickle or execute untrusted stored content. A successful
+registration or `ready` file resolution proves the declared local materialization
+and recorded integrity checks, not format parseability or scientific validity.
+
+### D13 acceptance cases
+
+These are the contract gates for the bounded slice. The native-storage guide and
+T70 record actual executed coverage; real provider inspections are evidence for
+the examples, not proof of every lifecycle or scientific edge case.
+
+```gherkin
+Feature: Offline source-native snapshots usable without BioV
+  Background:
+    Given an existing trusted source root and a disjoint trusted store root
+    And source originals remain outside the managed snapshot tree
+
+  Scenario: Register and resolve a complete native RefSeq package
+    Given a materialized NCBI Datasets package for GCF_000005845.2
+    And its native README, MD5 inventory, catalog and catalog members agree
+    When I register the package with its exact canonical versioned reference
+    Then the complete source tree and bytes are copied without rewriting
+    And the wrapper directly lists analysis entry files and their representations
+    And original acquisition facts not known from registration remain unknown
+    When I resolve genome_fasta without network access
+    Then I receive an ordinary local path to its native catalog-selected file
+    And the source original is unchanged
+
+  Scenario: Distinguish representation availability from biological absence
+    Given a valid RefSeq snapshot with no RNA FASTA entry in its native catalog
+    When I resolve rna_fasta offline
+    Then the result is unavailable with the representations actually present
+    And no download occurs and no biological absence is inferred
+
+  Scenario: Concurrent identical registrations cannot replace a winner
+    Given two writers registering the same complete native source tree
+    When both attempt to publish the same snapshot identity
+    Then one complete verified snapshot is retained
+    And the other writer reuses the verified winner
+    And its immutable receipt and source bytes are not replaced
+
+  Scenario: Changed annotation does not overwrite the same assembly version
+    Given a verified snapshot for GCF_000005845.2
+    When I register a package with changed annotation bytes for GCF_000005845.2
+    And its native checksums and catalog reflect the changed package
+    Then a distinct content-addressed snapshot is published
+    And the old snapshot remains byte-identical
+    When I resolve without a snapshot selector
+    Then I receive an explicit ambiguity with bounded choices
+    When I select the original snapshot exactly
+    Then its original native representation remains available
+
+  Scenario: Partial staging and invalid input do not become ready
+    Given a valid snapshot and an interrupted partial directory in staging
+    When I rediscover the store and attempt to register an invalid package
+    Then staging is ignored as a resolution candidate
+    And the invalid registration does not publish a ready snapshot
+    And the earlier valid snapshot remains intact
+
+  Scenario: Reconstruct discovery after moving the store
+    Given a published store with no durable discovery database
+    When I move the complete store to another directory
+    And the original source and store locations are no longer available
+    And I open a new store instance at the new root
+    Then scanning reconstructs the same snapshot identities and representations
+    And ready paths point inside the moved store
+    And no original path, old session or network lookup is needed
+
+  Scenario: Read and analyze a copied snapshot with an ordinary reader
+    Given a complete copied snapshot outside its original store
+    When I use standard readers in an environment without BioV and with network blocked
+    Then relative checksum paths verify the complete native file bytes
+    And the native metadata explains the representations and scientific scope
+    And I read complete records and perform a meaningful summary or filter
+    And no original source path or private catalog is required
+
+  Scenario: Keep PDB entry and assembly claims explicit
+    Given a caller-declared PDB package scoped to entry coordinates
+    When I register and resolve its explicitly mapped coordinate representation
+    Then the ordinary native file is returned with entry scope
+    And validation states that biological identity and mmCIF semantics are unverified
+    And it is not silently selected for an assembly-specific request
+
+  Scenario: Reject corruption and declaration conflicts without repair by overwrite
+    Given a previously published snapshot
+    When retained source bytes no longer match its receipt
+    Then resolution reports corrupt rather than a ready path
+    And a new registration does not silently overwrite that snapshot
+    When identical native source bytes are registered with conflicting declarations
+    Then a declaration conflict is reported without changing the existing meaning
+```
+
 ## §I INTERFACES
 The following entries describe the existing Python interfaces unless marked
 otherwise. The independent Rust MCP dataset route is specified in D12 and tracked
 in T63–T67; the native dataset guide records its verified scope.
 
+- native cmd: `biov-rs storage register --store-root DIR --source-root DIR --request-file JSON` and `biov-rs storage resolve --store-root DIR --request-file JSON` → thin adapters for D13, no downloads
+- native tool: `storage_register` and `storage_resolve` through `biov-rs mcp --data-root DIR --output-root DIR --store-root DIR` → the same bounded offline native-store contracts; `--store-root` is optional for the existing dataset-only route
+- native library: `biov_storage::NativeStore::new(store_root)`, `register(source_root, RegisterRequest)` and `resolve(ResolveRequest)` → source-native immutable copy registration and offline filesystem resolution; D13 defines the bounded provider/validation scope
+- file: `<store-root>/artifacts/<namespace>/<canonical accession>/snapshots/sha256-<digest>/` → relative inventory/receipt/checksums/README and complete unmodified `source/`; no durable index required
 - api: `BioDataFrame.overlap(other, how, seqid_col, start_col, end_col, strand_col)` → selected self rows
 - api: `BioDataFrame.intersect(other, seqid_col, start_col, end_col, strand_col)` → clipped self rows per overlap pair
 - api: `BioDataFrame.subtract_ranges(other, seqid_col, start_col, end_col, strand_col)` → residual self fragments
@@ -903,6 +1075,8 @@ V75: Rust migration defines and tests its selected CLI/MCP and any optional Pyth
 V76: native release support is claimed only for tested distribution targets; no compiler is required for supported prebuilt wheels, while source builds declare their toolchain requirements
 V77: every cache/data design obeys D0; copied/moved bundles must be discoverable, interpretable and analyzable with ordinary readers without BioV; preserve complete native data, explicit unknowns, relative inventory, content identities and lineage; current legacy gaps stay visible and require separate migration acceptance
 
+V78: native copy-registration preserves complete source bytes/layouts and original ownership, publishes only validated immutable snapshots without replacement, and resolves offline through portable filesystem records; exact biological references, snapshot content identity, declared scope and representation availability remain separate; full checksums do not authenticate provenance, and stream-copy storage does not expand D12 analytical limits
+
 ## §T TASKS
 id|status|task|cites
 T1|x|write contracts & failing acceptance tests|I.*,V1,V2,V3,V4,V5,V6,V7,V8,V9,V10,V11,V12,V13
@@ -977,6 +1151,9 @@ T67|x|validate complete cross-process reuse in source-built Linux through real M
 
 T68|x|add native export README and versioned companion manifest without changing strict record v2; emit upstream-compatible LargeUtf8 for direct standard-reader filtering and retain prior Utf8View paired reopen through bounded metadata/allocation preflight; validate moved-directory independent standard-reader checksums/schema/full rows/filter/summary with BioV absent, explicit unknown meanings/versions and honest trust scope; installed Linux no-cast PyArrow 25.0.1 acceptance, 39 biov-data tests and all nine MCP subprocess cases pass|D0,D2,D3,D4,D12,V77
 T69|planned|migrate audited Python provider/fsspec/managed-analysis/CRISPR cache and output gaps to D0 in contract-sized slices; preserve original provider bytes and native layouts, add missing portable inventory/dictionaries/source identities/lineage and independent-reader acceptance; do not claim global compliance from T68|D0,D2,D4,D7,D10,V77
+
+T70|x|implement the D13 bounded Rust native-store library and validate exact RefSeq catalog/checksum registration, explicitly declared PDB scope, offline paths, missing/ambiguous/unavailable/corrupt outcomes, no-overwrite concurrency, staging isolation, moved-store discovery and ordinary-reader portability; source-built Linux acceptance passes with 32 storage tests, 17 MCP/CLI process cases and independently read relocated real RefSeq/PDB packages under kernel network blocking; see native-storage guide for limits|D0,D9,D13,V77,V78
+T71|planned|add further native semantic adapters and analysis-ready derived views only through independent provider/format contracts; separately gate transactional downloads/hydration, import/result lineage, optional indices, explicit GC, large-data execution and distributed storage; five-source observations are not implementation claims|D0,D9,D10,D13,V77,V78
 
 ## §B BUGS
 id|date|cause|fix

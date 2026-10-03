@@ -8,6 +8,11 @@ managed-analysis outputs, and every future storage or large-data design. BioV
 may make discovery and reuse easier; it must not become the only reader or the
 only source of the meaning of saved data.
 
+Preserving a file is separate from decoding or previewing it. Future generic
+imports may retain opaque formats with an explicit unsupported-reader status;
+never automatically unpickle or execute untrusted source content. Arrow is an
+optional prepared representation, not a mandatory conversion for every format.
+
 - Keep complete data in documented standard/native formats. Preserve provider
   bytes and native package layouts; add descriptions beside them rather than
   rewriting originals or hiding the only usable representation in opaque state
@@ -29,6 +34,34 @@ only source of the meaning of saved data.
   gap, not an exception for new designs. Keep the audit in
   `docs/guides/rust-migration.md` truthful; a portable Rust result bundle does not
   establish compliance of every Python/provider/cache path
+
+## Native source storage boundary
+
+The bounded Rust native-store contract is SPEC D13 and
+`docs/guides/native-storage.md`. Preserve complete provider-native packages;
+wrapper records describe local registration and inventory, while native metadata
+remains authoritative. Keep analysis entry files and relationships discoverable
+in the wrapper README, not hidden behind BioV or an undocumented catalog crawl.
+
+- Copy existing packages from explicit trusted source roots; never move/delete
+  originals, hardlink mutable payloads or rewrite their biological/custom metadata
+- Keep canonical biological identity, scope/representation, source-content digest
+  and acquisition/registration facts separate. Never turn an unknown old download
+  time into today's registration time
+- RefSeq is the initial semantic adapter; PDB identity/representation mappings are
+  caller declarations with limited checks. UniProt, AlphaFold and GEO research
+  does not establish implemented semantic adapters
+- Stage, verify and publish with atomic no-replace semantics. Preserve a concurrent
+  verified winner and every prior immutable snapshot. Offline resolution returns
+  ordinary paths with explicit miss, ambiguity, unavailable and corrupt outcomes
+- Discovery scans durable relative records; no database is required. Validate
+  moved-store discovery and complete ordinary-reader analysis without BioV
+- Analysis-ready derived views are a separate planned layer with input hashes,
+  commands, schema and scientific meaning; raw reuse need not duplicate payloads,
+  but portable exports need an explicit dependency/materialization scope
+- No automatic cache/import migration, downloads, GC or distributed deployment is
+  implied. Streaming file copies do not raise the native table route's independent
+  64 MiB retained-data charge or establish large-data analytical execution
 
 ## Project scope
 
@@ -102,4 +135,5 @@ Keep public behavior consistent with `SPEC.md` and the documented coordinate,
 sequence, identifier and artifact contracts. Report current, in-progress and
 planned scope separately; SPEC D0 applies throughout. D12 and T63–T68 state the
 local-table, paired-record reopen and portable-result scope, with validation and
-platform/client limitations explicit.
+platform/client limitations explicit. D13 and T70–T71 separately define native-source
+storage and future semantic/derived layers.

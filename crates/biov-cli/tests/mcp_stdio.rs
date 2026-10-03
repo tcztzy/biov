@@ -72,12 +72,20 @@ impl Server {
         Self::start_roots(&fixture.data, &fixture.output).await
     }
     async fn start_roots(data: &Path, output: &Path) -> Self {
-        let mut child = Command::new(binary())
+        Self::start_with_storage(data, output, None).await
+    }
+    async fn start_with_storage(data: &Path, output: &Path, store: Option<&Path>) -> Self {
+        let mut command = Command::new(binary());
+        command
             .arg("mcp")
             .arg("--data-root")
             .arg(data)
             .arg("--output-root")
-            .arg(output)
+            .arg(output);
+        if let Some(store) = store {
+            command.arg("--store-root").arg(store);
+        }
+        let mut child = command
             // An empty PATH also catches accidental Python/helper-process dependencies.
             .env("PATH", "")
             .env_remove("PYTHONPATH")
@@ -233,7 +241,9 @@ async fn tools_have_typed_schemas_and_sdk_protocol_errors() {
             "dataset_query",
             "dataset_export",
             "dataset_read_artifact",
-            "dataset_release"
+            "dataset_release",
+            "storage_register",
+            "storage_resolve"
         ])
     );
     for tool in tools {
@@ -256,6 +266,20 @@ async fn tools_have_typed_schemas_and_sdk_protocol_errors() {
         (
             "dataset_query",
             json!({"dataset_id":"anything", "filter":{"column":"score", "op":"execute", "value":"code"}}),
+        ),
+        ("storage_register", json!({})),
+        (
+            "storage_register",
+            json!({"source_path":12, "requested_ref":"pdb:1ABC", "canonical_ref":"pdb:1ABC", "declaration":{"provider":"pdb","scope":"entry","representations":{"mmcif":["entry.cif"]}}}),
+        ),
+        (
+            "storage_register",
+            json!({"source_path":"pkg", "requested_ref":"pdb:1ABC", "canonical_ref":"pdb:1ABC", "declaration":{"provider":"invented"}}),
+        ),
+        ("storage_resolve", json!({"reference":"pdb:1ABC"})),
+        (
+            "storage_resolve",
+            json!({"reference":"pdb:1ABC", "representation":"mmcif", "unexpected":true}),
         ),
         ("no_such_tool", json!({})),
     ] {
@@ -926,6 +950,368 @@ async fn reopen_requires_matching_record_and_rejects_path_and_schema_errors() {
     assert_eq!(reopened["row_count"], 5);
     assert!(reopened["scientific_metadata"]["species"].is_null());
     second.finish().await;
+}
+
+// The identity and representation are intentionally caller declarations. This
+// tiny synthetic file is not claimed to be an authenticated PDB provider record.
+const DECLARED_MMCIF: &str = "data_synthetic\n_entry.id 1ABC\n#\n";
+
+fn declared_pdb_request(source_path: &str) -> Value {
+    json!({
+        "source_path":source_path,
+        "requested_ref":"pdb:1abc",
+        "canonical_ref":"pdb:1ABC",
+        "declaration":{
+            "provider":"pdb", "scope":"entry",
+            "representations":{"mmcif":["entry.cif"]}
+        }
+    })
+}
+
+fn prepare_native_fixture(fixture: &Fixture) -> PathBuf {
+    fs::create_dir(fixture.data.join("native")).unwrap();
+    fs::write(fixture.data.join("native/entry.cif"), DECLARED_MMCIF).unwrap();
+    let store = fixture.root.join("native-store");
+    fs::create_dir(&store).unwrap();
+    store
+}
+
+#[tokio::test]
+async fn storage_tools_report_not_configured_without_affecting_datasets() {
+    let fixture = Fixture::new();
+    let mut server = Server::start(&fixture).await;
+    for (tool, request) in [
+        ("storage_register", declared_pdb_request("native")),
+        (
+            "storage_resolve",
+            json!({"reference":"pdb:1ABC","representation":"mmcif"}),
+        ),
+    ] {
+        let response = server.call(tool, request).await;
+        assert_eq!(response["result"]["isError"], true);
+        assert!(response["result"]["content"][0]["text"]
+            .as_str()
+            .unwrap()
+            .contains("not configured"));
+        assert!(response["result"]["content"][0]["text"]
+            .as_str()
+            .unwrap()
+            .contains("--store-root"));
+    }
+    let opened = server
+        .successful("dataset_open", json!({"path":"genes.csv"}))
+        .await;
+    assert_eq!(opened["row_count"], 5);
+    server.finish().await;
+}
+
+#[tokio::test]
+async fn storage_register_resolve_survives_process_restart_and_store_move() {
+    let fixture = Fixture::new();
+    let store = prepare_native_fixture(&fixture);
+    let mut first = Server::start_with_storage(&fixture.data, &fixture.output, Some(&store)).await;
+    let registered = first
+        .successful("storage_register", declared_pdb_request("native"))
+        .await;
+    assert_eq!(registered["reused"], false);
+    assert_eq!(registered["requested_ref"], "pdb:1abc");
+    assert_eq!(registered["snapshot"]["canonical_ref"], "pdb:1ABC");
+    assert_eq!(registered["snapshot"]["scope"], "entry");
+    assert_eq!(registered["snapshot"]["file_count"], 1);
+    assert!(registered.get("inventory").is_none());
+    assert!(registered["snapshot"].get("inventory").is_none());
+    let snapshot_id = registered["snapshot"]["snapshot_id"].clone();
+    let request =
+        json!({"reference":"pdb:1ABC","representation":"mmcif","snapshot_id":snapshot_id});
+    let resolved = first.successful("storage_resolve", request.clone()).await;
+    assert_eq!(resolved["status"], "ready");
+    assert_eq!(resolved["paths"].as_array().unwrap().len(), 1);
+    let relative = resolved["paths"][0]["relative_path"].as_str().unwrap();
+    assert!(!Path::new(relative).is_absolute());
+    assert_eq!(
+        fs::read_to_string(store.join(relative)).unwrap(),
+        DECLARED_MMCIF
+    );
+    assert_eq!(
+        fs::read_to_string(
+            resolved["paths"][0]["execution_host_path"]
+                .as_str()
+                .unwrap()
+        )
+        .unwrap(),
+        DECLARED_MMCIF
+    );
+    assert!(resolved.get("inventory").is_none());
+    assert!(resolved.get("data").is_none());
+    let reused = first
+        .successful("storage_register", declared_pdb_request("native"))
+        .await;
+    assert_eq!(reused["reused"], true);
+    assert_eq!(reused["snapshot"]["snapshot_id"], snapshot_id);
+    let opened = first
+        .successful("dataset_open", json!({"path":"genes.csv"}))
+        .await;
+    assert_eq!(opened["row_count"], 5);
+    first.finish().await;
+
+    fs::remove_dir_all(&fixture.data).unwrap();
+    let moved = fixture.root.join("moved-store");
+    fs::rename(&store, &moved).unwrap();
+    let empty_data = fixture.root.join("unrelated-empty-data");
+    fs::create_dir(&empty_data).unwrap();
+    let mut second = Server::start_with_storage(&empty_data, &fixture.output, Some(&moved)).await;
+    let reopened = second.successful("storage_resolve", request).await;
+    assert_eq!(reopened["status"], "ready");
+    assert_eq!(reopened["snapshot"]["snapshot_id"], snapshot_id);
+    assert_eq!(reopened["paths"][0]["relative_path"], relative);
+    let host_path = Path::new(
+        reopened["paths"][0]["execution_host_path"]
+            .as_str()
+            .unwrap(),
+    );
+    assert!(host_path.starts_with(&moved));
+    assert_eq!(fs::read_to_string(host_path).unwrap(), DECLARED_MMCIF);
+    let unknown = second
+        .successful(
+            "storage_resolve",
+            json!({"reference":"pdb:1ABC", "representation":"not_supplied"}),
+        )
+        .await;
+    assert_eq!(unknown["status"], "unavailable");
+    assert_eq!(unknown["available_representations"], json!(["mmcif"]));
+    let absent = second
+        .successful(
+            "storage_resolve",
+            json!({"reference":"pdb:9XYZ", "representation":"mmcif"}),
+        )
+        .await;
+    assert_eq!(absent["status"], "miss");
+    // Full integrity checking is observable as a structured status, not raw bytes.
+    fs::write(host_path, b"changed native bytes\n").unwrap();
+    let corrupt = second
+        .successful(
+            "storage_resolve",
+            json!({"reference":"pdb:1ABC","representation":"mmcif","snapshot_id":snapshot_id}),
+        )
+        .await;
+    assert_eq!(corrupt["status"], "corrupt");
+    second.finish().await;
+}
+
+#[tokio::test]
+async fn storage_invalid_paths_ids_and_scopes_are_bounded_errors() {
+    let fixture = Fixture::new();
+    let store = prepare_native_fixture(&fixture);
+    let mut server = Server::start_with_storage(&fixture.data, &fixture.output, Some(&store)).await;
+    for path in [
+        "../native",
+        "/etc",
+        "missing",
+        "https://example.org/package",
+    ] {
+        server
+            .tool_error("storage_register", declared_pdb_request(path))
+            .await;
+    }
+    for changes in [
+        json!({"requested_ref":"pdb:2ABC"}),
+        json!({"canonical_ref":"ds_session_handle"}),
+        json!({"declaration":{"provider":"pdb","scope":"assembly:0","representations":{"mmcif":["entry.cif"]}}}),
+        json!({"declaration":{"provider":"pdb","scope":"entry","representations":{"mmcif":["../entry.cif"]}}}),
+        json!({"declaration":{"provider":"pdb","scope":"entry","representations":{"mmcif":["missing.cif"]}}}),
+    ] {
+        let mut request = declared_pdb_request("native");
+        for (key, value) in changes.as_object().unwrap() {
+            request[key] = value.clone();
+        }
+        server.tool_error("storage_register", request).await;
+    }
+    for request in [
+        json!({"reference":"ds_session_handle", "representation":"mmcif"}),
+        json!({"reference":"pdb:1ABC", "representation":"../mmcif"}),
+        json!({"reference":"pdb:1ABC", "representation":"mmcif", "snapshot_id":"../snapshot"}),
+        json!({"reference":"pdb:1ABC", "representation":"mmcif", "scope":"assembly:0"}),
+    ] {
+        server.tool_error("storage_resolve", request).await;
+    }
+    let registered = server
+        .successful("storage_register", declared_pdb_request("native"))
+        .await;
+    let other_scope = server.successful("storage_resolve", json!({"reference":"pdb:1ABC", "representation":"mmcif", "scope":"assembly:1", "snapshot_id":registered["snapshot"]["snapshot_id"]})).await;
+    assert_eq!(
+        other_scope["status"], "miss",
+        "entry does not imply assembly scope"
+    );
+    server.finish().await;
+}
+
+#[tokio::test]
+async fn storage_ambiguity_requires_explicit_snapshot_selection() {
+    let fixture = Fixture::new();
+    let store = prepare_native_fixture(&fixture);
+    let mut server = Server::start_with_storage(&fixture.data, &fixture.output, Some(&store)).await;
+    let first = server
+        .successful("storage_register", declared_pdb_request("native"))
+        .await;
+    fs::write(
+        fixture.data.join("native/entry.cif"),
+        "data_other_synthetic\n_entry.id 1ABC\n#\n",
+    )
+    .unwrap();
+    let second = server
+        .successful("storage_register", declared_pdb_request("native"))
+        .await;
+    assert_ne!(
+        first["snapshot"]["snapshot_id"],
+        second["snapshot"]["snapshot_id"]
+    );
+    let ambiguous = server
+        .successful(
+            "storage_resolve",
+            json!({"reference":"pdb:1ABC", "representation":"mmcif"}),
+        )
+        .await;
+    assert_eq!(ambiguous["status"], "ambiguous");
+    assert_eq!(ambiguous["candidates"].as_array().unwrap().len(), 2);
+    let selected = server.successful("storage_resolve", json!({"reference":"pdb:1ABC", "representation":"mmcif", "snapshot_id":first["snapshot"]["snapshot_id"]})).await;
+    assert_eq!(selected["status"], "ready");
+    assert_eq!(
+        fs::read_to_string(
+            selected["paths"][0]["execution_host_path"]
+                .as_str()
+                .unwrap()
+        )
+        .unwrap(),
+        DECLARED_MMCIF
+    );
+    server.finish().await;
+}
+
+async fn cli_storage(
+    fixture: &Fixture,
+    store: &Path,
+    action: &str,
+    request_file: &Path,
+) -> std::process::Output {
+    let mut command = Command::new(binary());
+    command
+        .args(["storage", action])
+        .arg("--store-root")
+        .arg(store)
+        .arg("--request-file")
+        .arg(request_file);
+    if action == "register" {
+        command.arg("--source-root").arg(&fixture.data);
+    }
+    timeout(
+        DEADLINE,
+        command.env("PATH", "").env_remove("PYTHONPATH").output(),
+    )
+    .await
+    .unwrap()
+    .unwrap()
+}
+
+fn successful_cli_json(output: &std::process::Output) -> Value {
+    assert!(
+        output.status.success(),
+        "CLI failed: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert!(output.stderr.is_empty());
+    assert!(output.stdout.len() <= 64 * 1024 + 1);
+    let result: Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert!(result.is_object());
+    result
+}
+
+#[tokio::test]
+async fn one_shot_storage_cli_has_bounded_strict_json_and_no_source_for_resolution() {
+    let fixture = Fixture::new();
+    let store = prepare_native_fixture(&fixture);
+    let request_file = fixture.root.join("request.json");
+    fs::write(
+        &request_file,
+        serde_json::to_vec(&declared_pdb_request("native")).unwrap(),
+    )
+    .unwrap();
+    let registered =
+        successful_cli_json(&cli_storage(&fixture, &store, "register", &request_file).await);
+    assert_eq!(registered["reused"], false);
+    fs::remove_dir_all(&fixture.data).unwrap();
+    let moved = fixture.root.join("moved-cli-store");
+    fs::rename(&store, &moved).unwrap();
+    let request = json!({"reference":"pdb:1ABC","representation":"mmcif"});
+    fs::write(&request_file, serde_json::to_vec(&request).unwrap()).unwrap();
+    let resolved =
+        successful_cli_json(&cli_storage(&fixture, &moved, "resolve", &request_file).await);
+    assert_eq!(resolved["status"], "ready");
+    assert_eq!(
+        resolved["snapshot"]["snapshot_id"],
+        registered["snapshot"]["snapshot_id"]
+    );
+    assert_eq!(
+        fs::read_to_string(
+            resolved["paths"][0]["execution_host_path"]
+                .as_str()
+                .unwrap()
+        )
+        .unwrap(),
+        DECLARED_MMCIF
+    );
+    for (reference, representation, status) in [
+        ("pdb:9XYZ", "mmcif", "miss"),
+        ("pdb:1ABC", "unknown_representation", "unavailable"),
+    ] {
+        fs::write(
+            &request_file,
+            serde_json::to_vec(&json!({"reference":reference,"representation":representation}))
+                .unwrap(),
+        )
+        .unwrap();
+        let result =
+            successful_cli_json(&cli_storage(&fixture, &moved, "resolve", &request_file).await);
+        assert_eq!(result["status"], status);
+    }
+    for invalid in [
+        "{}".to_owned(),
+        "{broken JSON".to_owned(),
+        r#"{"reference":"pdb:1ABC","reference":"pdb:2ABC","representation":"mmcif"}"#.to_owned(),
+        r#"{"reference":"pdb:1ABC","representation":"mmcif","extra":true}"#.to_owned(),
+        " ".repeat(64 * 1024 + 1),
+    ] {
+        fs::write(&request_file, invalid).unwrap();
+        let output = cli_storage(&fixture, &moved, "resolve", &request_file).await;
+        assert!(!output.status.success());
+        assert!(
+            output.stdout.is_empty(),
+            "errors must not look like JSON results"
+        );
+        assert!(!output.stderr.is_empty() && output.stderr.len() <= 2060);
+    }
+    fs::remove_file(&request_file).unwrap();
+    let output = cli_storage(&fixture, &moved, "resolve", &request_file).await;
+    assert!(!output.status.success());
+    assert!(output.stdout.is_empty());
+}
+
+#[cfg(unix)]
+#[tokio::test]
+async fn storage_cli_rejects_fifo_before_opening_it() {
+    let fixture = Fixture::new();
+    let store = prepare_native_fixture(&fixture);
+    let request_file = fixture.root.join("request.fifo");
+    // Test-only POSIX fixture creation. The actual biov-rs subprocess still runs
+    // with empty PATH and cannot depend on this or another helper executable.
+    assert!(std::process::Command::new("mkfifo")
+        .arg(&request_file)
+        .status()
+        .unwrap()
+        .success());
+    let output = cli_storage(&fixture, &store, "resolve", &request_file).await;
+    assert!(!output.status.success());
+    assert!(output.stdout.is_empty());
+    assert!(String::from_utf8_lossy(&output.stderr).contains("request file must be a regular file"));
 }
 
 #[tokio::test]

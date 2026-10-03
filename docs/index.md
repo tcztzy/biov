@@ -14,6 +14,9 @@ coordinates, units and complete data.
   on-demand package sources
 - Resolve biological identifiers to native provider files and reusable local
   artifacts, with Python and fsspec access
+- Register existing RefSeq native packages and declared PDB representations in
+  [immutable local snapshots](guides/native-storage.md), then resolve ordinary
+  file paths offline without a database
 - Work with genomic intervals and explicitly typed DNA, RNA and protein sequences
 - Run local managed Python analyses, retain complete outputs and records, and
   inspect bounded previews through Python, CLI or MCP
