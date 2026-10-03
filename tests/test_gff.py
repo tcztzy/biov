@@ -1,3 +1,5 @@
+"""Acceptance tests for GFF3 reading, metadata, and writing."""
+
 from io import StringIO
 from pathlib import Path
 from tempfile import NamedTemporaryFile
@@ -16,10 +18,16 @@ chr1\t.\texon\t150\t180\t.\t+\t.\tID=exon1;Parent=gene1
 
 @pytest.fixture
 def sample_gff():
+    """Parse the sample GFF3 once for tests that only read the frame.
+
+    Returns:
+        Frame carrying the sample gene and exon records.
+    """
     return read_gff3(StringIO(SAMPLE_GFF))
 
 
 def test_read_gff3():
+    """Read records with and without exploded attribute columns."""
     df = read_gff3(StringIO(SAMPLE_GFF), explode_attributes=False)
     assert isinstance(df, BioDataFrame)
     assert list(df.columns) == GFF_COLUMNS
@@ -32,6 +40,7 @@ def test_read_gff3():
 
 
 def test_gff_metadata_survives_dataframe_operations():
+    """Preserve GFF column metadata through copy, slice, and assign."""
     custom_columns = [f"column_{index}" for index in range(9)]
     frame = BioDataFrame({"value": [1, 2]})
     frame._gff_columns = custom_columns
@@ -41,6 +50,7 @@ def test_gff_metadata_survives_dataframe_operations():
 
 
 def test_to_gff3(sample_gff: BioDataFrame):
+    """Write GFF3 to a file and re-emit added columns in the output text."""
     with NamedTemporaryFile(mode="w", suffix=".gff") as f:
         sample_gff.to_gff3(f.name)
         content = Path(f.name).read_text()

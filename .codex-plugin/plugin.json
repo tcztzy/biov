@@ -1,0 +1,20 @@
+{
+  "name": "biov",
+  "version": "0.1.2",
+  "description": "Biological data access, scientific software execution, and task skills for AI agents.",
+  "author": { "name": "Tang Ziya" },
+  "homepage": "https://github.com/tcztzy/biov",
+  "repository": "https://github.com/tcztzy/biov",
+  "skills": "./skills/",
+  "mcpServers": "./.mcp.json",
+  "interface": {
+    "displayName": "BioV",
+    "shortDescription": "Biological data, software execution, and analysis guidance",
+    "longDescription": "Discover biological data, use scientific software through BioV, and load task-specific methods and reference protocols as needed. Requires the BioV command on PATH; scientific environments are configured separately.",
+    "developerName": "Tang Ziya",
+    "category": "Productivity",
+    "capabilities": ["Read", "Interactive"],
+    "websiteURL": "https://github.com/tcztzy/biov",
+    "defaultPrompt": ["Find the data and software needed for this biological analysis."]
+  }
+}

@@ -9,18 +9,22 @@ from pathlib import Path
 import pytest
 from typer.testing import CliRunner
 
-import biov.cli as cli
+from biov import cli
 from biov.registry import (
     RegistryAssetError,
-    namespaces_by_prefix,
     load_registry_asset,
+    namespaces_by_prefix,
     parse_registry_response,
     update_registry_asset,
 )
 
 
 def _packaged_response_bytes() -> bytes:
-    """Read the packaged upstream response body."""
+    """Read the packaged upstream response body.
+
+    Returns:
+        Exact bytes of the packaged identifiers.org registry snapshot.
+    """
     return files("biov.assets").joinpath("identifiers_org_registry.json").read_bytes()
 
 
@@ -79,12 +83,12 @@ def test_registry_rejects_invalid_runtime_fields(field: str, value: object) -> N
 
 
 def test_registry_asset_and_updater_are_packaged_project_assets() -> None:
-    """Keep the raw snapshot importable and its updater version-controlled."""
+    """Keep the raw snapshot importable and its updater part of the BioV CLI."""
     asset = files("biov.assets").joinpath("identifiers_org_registry.json")
-    script = Path(__file__).parents[1] / "scripts" / "update_identifiers_registry.py"
+    commands = {command.name for command in cli.app.registered_commands}
 
     assert asset.is_file()
-    assert script.is_file()
+    assert "update" in commands
 
 
 def test_registry_update_skips_a_byte_identical_response(
@@ -166,7 +170,7 @@ def test_biov_registry_update_subcommand(monkeypatch, tmp_path: Path) -> None:
     monkeypatch.setattr(cli, "update_registry_asset", fake_update)
     result = CliRunner().invoke(
         cli.app,
-        ["update-identifiers-registry", "--output", str(output)],
+        ["update", "--output", str(output)],
     )
 
     assert result.exit_code == 0
@@ -185,7 +189,7 @@ def test_biov_registry_update_failure_is_a_clean_cli_error(
     monkeypatch.setattr(cli, "update_registry_asset", failing_update)
     result = CliRunner().invoke(
         cli.app,
-        ["update-identifiers-registry", "--output", str(output)],
+        ["update", "--output", str(output)],
     )
 
     assert result.exit_code == 2

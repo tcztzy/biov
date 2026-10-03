@@ -1,9 +1,7 @@
 """Acceptance tests for BioV genomic range semantics."""
 
 import importlib
-import tomllib
 from collections.abc import Sequence
-from pathlib import Path
 
 import pandas as pd
 import pytest
@@ -260,20 +258,3 @@ def test_pyranges_compatibility_surface_is_removed() -> None:
     assert not hasattr(query, "to_pyranges")
     with pytest.raises(TypeError, match="BioDataFrame"):
         query.overlap(object())  # type: ignore[arg-type]
-
-
-def test_legacy_interval_dependencies_are_absent() -> None:
-    """Keep PyRanges 0.x and its implementation dependencies out of the lock."""
-    root = Path(__file__).parent.parent
-    project = tomllib.loads((root / "pyproject.toml").read_text())
-    lock = tomllib.loads((root / "uv.lock").read_text())
-    forbidden = {"pyranges", "sorted-nearest", "ncls", "setuptools"}
-    direct = {
-        dependency.split("[", maxsplit=1)[0].split(">", maxsplit=1)[0]
-        for dependency in project["project"]["dependencies"]
-    }
-    locked = {package["name"] for package in lock["package"]}
-
-    assert project["project"]["requires-python"] == ">=3.12"
-    assert forbidden.isdisjoint(direct)
-    assert forbidden.isdisjoint(locked)

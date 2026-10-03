@@ -8,8 +8,12 @@ wheels/
 
 # Virtual environments
 .venv
+.pixi/
 .aider*
 .python-version
+
+# BioV preparation markers written into a selected project
+.biov/
 
 # mkdocs
 site/

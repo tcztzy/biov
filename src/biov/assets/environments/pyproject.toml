@@ -1,0 +1,411 @@
+# Scientific dependencies and entry points use native Pixi tables.
+[tool.pixi.workspace]
+channels = ["https://conda.anaconda.org/conda-forge", "https://conda.anaconda.org/bioconda"]
+platforms = ["linux-64"]
+requires-pixi = "==0.81.0"
+
+[tool.pixi.feature.samtools.dependencies]
+samtools = "*"
+
+[tool.pixi.feature.bcftools.dependencies]
+bcftools = "*"
+
+[tool.pixi.feature.snpeff.dependencies]
+snpeff = "*"
+
+[tool.pixi.feature.snpeff.tasks]
+snpeff = 'cd "$INIT_CWD" && snpEff'
+
+[tool.pixi.feature.lumpy.dependencies]
+lumpy-sv = "*"
+
+[tool.pixi.feature.lumpy.tasks]
+lumpy = 'cd "$INIT_CWD" && lumpyexpress'
+
+[tool.pixi.feature.cnvkit.dependencies]
+cnvkit = "*"
+
+[tool.pixi.feature.cnvkit.tasks]
+cnvkit = 'cd "$INIT_CWD" && cnvkit.py'
+
+[tool.pixi.feature.macs3.dependencies]
+macs3 = "*"
+
+[tool.pixi.feature.crossmap.dependencies]
+crossmap = "*"
+
+[tool.pixi.feature.crossmap.tasks]
+crossmap = 'cd "$INIT_CWD" && CrossMap'
+
+[tool.pixi.feature.gatk.dependencies]
+gatk4 = "*"
+
+[tool.pixi.feature.homer.dependencies]
+homer = "*"
+
+[tool.pixi.feature.homer.tasks]
+homer = 'cd "$INIT_CWD" && annotatePeaks.pl'
+
+[tool.pixi.feature.plannotate.dependencies]
+plannotate = "*"
+
+[tool.pixi.feature.prokka.dependencies]
+prokka = "*"
+
+[tool.pixi.feature.crispresso2.dependencies]
+crispresso2 = "*"
+
+[tool.pixi.feature.crispresso2.tasks]
+crispresso2 = 'cd "$INIT_CWD" && CRISPResso'
+
+[tool.pixi.feature.mafft.dependencies]
+mafft = "*"
+
+[tool.pixi.feature.iqtree.dependencies]
+iqtree = "*"
+
+[tool.pixi.feature.bwa.dependencies]
+bwa = "*"
+
+[tool.pixi.feature.hmmer.dependencies]
+hmmer = "*"
+
+[tool.pixi.feature.hmmer.tasks]
+hmmer = 'cd "$INIT_CWD" && hmmscan'
+
+[tool.pixi.feature.blat.dependencies]
+blat = "*"
+
+[tool.pixi.feature.blast.dependencies]
+blast = "*"
+
+[tool.pixi.feature.blast.tasks]
+blast = 'cd "$INIT_CWD" && blastn'
+
+[tool.pixi.feature.datasets.dependencies]
+ncbi-datasets-cli = "*"
+
+[tool.pixi.feature.python.dependencies]
+python = "3.12.*"
+cxx-compiler = "*"
+
+[tool.pixi.feature.python.pypi-dependencies]
+scipy = "==1.18.1"
+statsmodels = "==0.15.0"
+scikit-learn = "==1.9.1"
+networkx = "==3.7"
+matplotlib = "==3.11.2"
+primer3-py = "==2.3.1"
+pydna = "==5.5.16"
+viennarna = "==2.7.2"
+dnachisel = "==3.2.16"
+dnacauldron = "==2.0.12"
+scikit-image = "==0.26.0"
+nibabel = "==5.4.2"
+simpleitk = "==2.5.6"
+trackpy = "==0.7"
+skan = "==0.13.1"
+dipy = "==1.12.1"
+gseapy = "==1.3.1"
+python-libsbml = "==5.21.2"
+msprime = "==1.4.4"
+gillespy2 = "==1.8.3"
+rdkit = "==2026.3.6"
+pylabrobot = "==0.2.2"
+cooler = "==0.10.4"
+cooltools = "==0.7.1"
+gget = "==0.30.8"
+pybiomart = "==0.2.0"
+biopython = "*"
+numpy = "*"
+pandas = "*"
+
+[tool.pixi.feature.r.dependencies]
+cxx-compiler = "*"
+fortran-compiler = "*"
+make = "*"
+curl = "*"
+coreutils = "*"
+bash = "*"
+r-rcpp = "*"
+r-rcpparmadillo = "*"
+r-rcppeigen = "*"
+r-base = "4.5.*"
+bioconductor-deseq2 = "*"
+bioconductor-edger = "*"
+bioconductor-limma = "*"
+r-susier = "*"
+r-seurat = "*"
+
+[tool.pixi.feature.r.tasks]
+r = 'cd "$INIT_CWD" && Rscript'
+# ponytail: rebuild source R packages on setup; cache by hash if rebuilds become costly.
+prepare = { cmd = ["bash", "-c", "set -eu\nmkdir -p sources/r\ncurl --fail --location https://cran.r-project.org/src/contrib/MASS_7.3-66.tar.gz --output sources/r/MASS_7.3-66.tar.gz\necho \"59c619c70bfca653f1c74aef880e69405daefd0134e716a1862ecc5334b4e155  sources/r/MASS_7.3-66.tar.gz\" | sha256sum --check --strict\nMAKEFLAGS=-j2 R CMD INSTALL sources/r/MASS_7.3-66.tar.gz\ncurl --fail --location https://cran.r-project.org/src/contrib/RcppProgress_0.4.2.tar.gz --output sources/r/RcppProgress_0.4.2.tar.gz\necho \"b1624b21b7aeb1dafb30f092b2a4bef4c3504efd2d6b00b2cdf55dc9df194b48  sources/r/RcppProgress_0.4.2.tar.gz\" | sha256sum --check --strict\nMAKEFLAGS=-j2 R CMD INSTALL sources/r/RcppProgress_0.4.2.tar.gz\ncurl --fail --location https://cran.r-project.org/src/contrib/enhancer_1.1.1.tar.gz --output sources/r/enhancer_1.1.1.tar.gz\necho \"8f7df18144d8850299065899b9547eff69bfb01fdede764817da12a2ffd59648  sources/r/enhancer_1.1.1.tar.gz\" | sha256sum --check --strict\nMAKEFLAGS=-j2 R CMD INSTALL sources/r/enhancer_1.1.1.tar.gz\ncurl --fail --location https://cran.r-project.org/src/contrib/sommer_4.4.7.tar.gz --output sources/r/sommer_4.4.7.tar.gz\necho \"43b10dec7e8ef8249e95e0aeb2b62bc32d7b9111ef0971cc16fff9d44b1666cf  sources/r/sommer_4.4.7.tar.gz\" | sha256sum --check --strict\nMAKEFLAGS=-j2 R CMD INSTALL sources/r/sommer_4.4.7.tar.gz\n"] }
+
+[tool.pixi.feature.flowkit.dependencies]
+python = "3.12.*"
+
+[tool.pixi.feature.flowkit.pypi-dependencies]
+flowkit = "*"
+pandas = "<3"
+
+[tool.pixi.feature.flowkit.tasks]
+flowkit = 'cd "$INIT_CWD" && python'
+
+[tool.pixi.feature.cobra.dependencies]
+python = "3.12.*"
+
+[tool.pixi.feature.cobra.pypi-dependencies]
+cobra = "*"
+pandas = "<3"
+
+[tool.pixi.feature.cobra.tasks]
+cobra = 'cd "$INIT_CWD" && python'
+
+[tool.pixi.feature.scvi.dependencies]
+python = "3.12.*"
+libgcc-ng = "*"
+
+[tool.pixi.feature.scvi.pypi-dependencies]
+scanpy = "==1.12.4"
+scvi-tools = "==1.5.1"
+harmonypy = "==2.0.2"
+torch = "==2.8.0"
+
+[tool.pixi.feature.scvi.tasks]
+scvi = 'cd "$INIT_CWD" && python'
+
+[tool.pixi.feature.esm.dependencies]
+python = "3.11.*"
+libgcc-ng = "*"
+
+[tool.pixi.feature.esm.pypi-dependencies]
+fair-esm = "==2.0.0"
+torch = "==2.5.1"
+numpy = "<2"
+
+[tool.pixi.feature.esm.tasks]
+esm = 'cd "$INIT_CWD" && python'
+
+[tool.pixi.feature.cellpose.dependencies]
+python = "3.11.*"
+libgcc-ng = "*"
+
+[tool.pixi.feature.cellpose.pypi-dependencies]
+cellpose = "*"
+torch = "==2.8.0"
+
+[tool.pixi.feature.nnunet.dependencies]
+python = "3.11.*"
+libgcc-ng = "*"
+cxx-compiler = "*"
+
+[tool.pixi.feature.nnunet.pypi-dependencies]
+nnunet = "==1.7.1"
+numpy = "<2"
+torch = "==2.5.1"
+
+[tool.pixi.feature.nnunet.tasks]
+nnunet = 'cd "$INIT_CWD" && nnUNet_predict'
+
+[tool.pixi.feature.deeppurpose.dependencies]
+python = "3.11.*"
+libgcc-ng = "*"
+cxx-compiler = "*"
+
+[tool.pixi.feature.deeppurpose.pypi-dependencies]
+DeepPurpose = "==0.1.5"
+numpy = "<2"
+torch = "==2.5.1"
+
+[tool.pixi.feature.deeppurpose.tasks]
+deeppurpose = 'cd "$INIT_CWD" && python'
+
+[tool.pixi.feature.panhumanpy.dependencies]
+python = "3.11.*"
+libgcc-ng = "*"
+
+[tool.pixi.feature.panhumanpy.pypi-dependencies]
+panhumanpy = "==1.0.0"
+numpy = "<2"
+
+[tool.pixi.feature.panhumanpy.tasks]
+panhumanpy = 'cd "$INIT_CWD" && python'
+
+[tool.pixi.feature.popv.dependencies]
+python = "3.11.*"
+libgcc-ng = "*"
+cxx-compiler = "*"
+
+[tool.pixi.feature.popv.pypi-dependencies]
+popv = "==0.6.1"
+numpy = "<2"
+torch = "==2.8.0"
+
+[tool.pixi.feature.popv.tasks]
+popv = 'cd "$INIT_CWD" && python'
+
+[tool.pixi.feature.state.dependencies]
+python = "3.11.*"
+libgcc-ng = "*"
+
+[tool.pixi.feature.state.pypi-dependencies]
+arc-state = "==0.11.1"
+torch = "==2.8.0"
+
+[tool.pixi.feature.transcriptformer.dependencies]
+python = "3.11.*"
+libgcc-ng = "*"
+cxx-compiler = "*"
+
+[tool.pixi.feature.transcriptformer.pypi-dependencies]
+transcriptformer = "==0.6.1"
+torch = "==2.5.1"
+
+[tool.pixi.feature.chatnt.dependencies]
+python = "3.11.*"
+libgcc-ng = "*"
+
+[tool.pixi.feature.chatnt.pypi-dependencies]
+transformers = "==4.41.1"
+torch = "==2.5.1"
+sentencepiece = "==0.2.0"
+numpy = "<2"
+
+[tool.pixi.feature.chatnt.tasks]
+chatnt = 'cd "$INIT_CWD" && python'
+
+[tool.pixi.feature.uce.dependencies]
+git = "*"
+python = "3.11.*"
+libgcc-ng = "*"
+
+[tool.pixi.feature.uce.pypi-dependencies]
+torch = "==2.1.1"
+numpy = "==1.26.4"
+scipy = "==1.14.1"
+pandas = "==2.2.2"
+scanpy = "==1.10.2"
+accelerate = "==0.24.0"
+
+[tool.pixi.feature.uce.tasks]
+uce = 'cd "$INIT_CWD" && python "$PIXI_PROJECT_ROOT/sources/uce/eval_single_anndata.py"'
+prepare = "git init sources/uce && git -C sources/uce fetch --depth 1 https://github.com/snap-stanford/UCE.git 9c416007be15ad6753dc84af4468c1dc10421ab9 && git -C sources/uce checkout --detach FETCH_HEAD"
+
+[tool.pixi.feature.vina-meeko.dependencies]
+python = "3.11.*"
+autodock-vina = "*"
+meeko = "*"
+
+[tool.pixi.feature.vina-meeko.tasks]
+vina-meeko = 'cd "$INIT_CWD" && vina'
+
+[tool.pixi.environments]
+diffdock = { features = ["diffdock"], no-default-feature = true }
+txgnn = { features = ["txgnn"], no-default-feature = true }
+autosite = { features = ["autosite"], no-default-feature = true }
+default = { features = [], no-default-feature = true }
+samtools = { features = ["samtools"], no-default-feature = true }
+bcftools = { features = ["bcftools"], no-default-feature = true }
+snpeff = { features = ["snpeff"], no-default-feature = true }
+lumpy = { features = ["lumpy"], no-default-feature = true }
+cnvkit = { features = ["cnvkit"], no-default-feature = true }
+macs3 = { features = ["macs3"], no-default-feature = true }
+crossmap = { features = ["crossmap"], no-default-feature = true }
+gatk = { features = ["gatk"], no-default-feature = true }
+homer = { features = ["homer"], no-default-feature = true }
+plannotate = { features = ["plannotate"], no-default-feature = true }
+prokka = { features = ["prokka"], no-default-feature = true }
+crispresso2 = { features = ["crispresso2"], no-default-feature = true }
+mafft = { features = ["mafft"], no-default-feature = true }
+iqtree = { features = ["iqtree"], no-default-feature = true }
+bwa = { features = ["bwa"], no-default-feature = true }
+hmmer = { features = ["hmmer"], no-default-feature = true }
+blat = { features = ["blat"], no-default-feature = true }
+blast = { features = ["blast"], no-default-feature = true }
+datasets = { features = ["datasets"], no-default-feature = true }
+python = { features = ["python"], no-default-feature = true }
+r = { features = ["r"], no-default-feature = true }
+flowkit = { features = ["flowkit"], no-default-feature = true }
+cobra = { features = ["cobra"], no-default-feature = true }
+scvi = { features = ["scvi"], no-default-feature = true }
+esm = { features = ["esm"], no-default-feature = true }
+cellpose = { features = ["cellpose"], no-default-feature = true }
+nnunet = { features = ["nnunet"], no-default-feature = true }
+deeppurpose = { features = ["deeppurpose"], no-default-feature = true }
+panhumanpy = { features = ["panhumanpy"], no-default-feature = true }
+popv = { features = ["popv"], no-default-feature = true }
+state = { features = ["state"], no-default-feature = true }
+transcriptformer = { features = ["transcriptformer"], no-default-feature = true }
+chatnt = { features = ["chatnt"], no-default-feature = true }
+uce = { features = ["uce"], no-default-feature = true }
+vina-meeko = { features = ["vina-meeko"], no-default-feature = true }
+
+# Inference dependencies follow sources/diffdock/environment.yml at the pinned
+# prepare revision. OpenFold needs Torch and CUDA headers before PyPI resolution.
+[tool.pixi.feature.diffdock]
+channels = ["pytorch", "nvidia/label/cuda-11.7.1", "conda-forge"]
+
+[tool.pixi.feature.diffdock.dependencies]
+python = "3.9.18.*"
+git = "*"
+prody = "2.2.0.*"
+scipy = "1.12.*"
+pytorch = "1.13.1.*"
+pytorch-cuda = "11.7.*"
+# Older Torch binaries require the iJIT symbols removed in MKL 2024.1.
+mkl = "<2024.1"
+cuda-nvcc = "11.7.*"
+cuda-libraries-dev = "11.7.*"
+gxx_linux-64 = "11.*"
+setuptools = "69.5.1.*"
+wheel = "*"
+
+[tool.pixi.feature.diffdock.pypi-options]
+no-build-isolation = ["deepspeed", "openfold"]
+
+[tool.pixi.feature.diffdock.pypi-dependencies]
+e3nn = "==0.5.1"
+fair-esm = { version = "==2.0.0", extras = ["esmfold"] }
+networkx = "==2.8.4"
+pandas = "==1.5.1"
+rdkit = "==2022.3.3"
+scikit-learn = "==1.1.0"
+pybind11 = "==2.11.1"
+pytorch-lightning = "==1.9.5"
+torchmetrics = "==0.11.0"
+torch-geometric = "==2.2.0"
+torch-scatter = { url = "https://data.pyg.org/whl/torch-1.13.0%2Bcu117/torch_scatter-2.1.0%2Bpt113cu117-cp39-cp39-linux_x86_64.whl" }
+torch-cluster = { url = "https://data.pyg.org/whl/torch-1.13.0%2Bcu117/torch_cluster-1.6.0%2Bpt113cu117-cp39-cp39-linux_x86_64.whl" }
+torch-sparse = { url = "https://data.pyg.org/whl/torch-1.13.0%2Bcu117/torch_sparse-0.6.16%2Bpt113cu117-cp39-cp39-linux_x86_64.whl" }
+torch-spline-conv = { url = "https://data.pyg.org/whl/torch-1.13.0%2Bcu117/torch_spline_conv-1.2.1%2Bpt113cu117-cp39-cp39-linux_x86_64.whl" }
+openfold = { git = "https://github.com/aqlaboratory/openfold.git", rev = "4b41059694619831a7db195b7e0988fc4ff3a307" }
+dllogger = { git = "https://github.com/NVIDIA/dllogger.git", rev = "0478734ff7be75adde8d160e04872664d1c62e5f" }
+pyyaml = "*"
+requests = "*"
+[tool.pixi.feature.diffdock.tasks]
+diffdock = 'cd "$INIT_CWD" && python "$PIXI_PROJECT_ROOT/sources/diffdock/inference.py" --config "$PIXI_PROJECT_ROOT/sources/diffdock/default_inference_args.yaml"'
+prepare = "git init sources/diffdock && git -C sources/diffdock fetch --depth 1 https://github.com/gcorso/DiffDock.git 85c49b60d3e0b0182a59ee43a34a6d7036981284 && git -C sources/diffdock checkout --detach FETCH_HEAD"
+[tool.pixi.feature.txgnn.dependencies]
+python = "3.10.*"
+git = "*"
+[tool.pixi.feature.txgnn.pypi-dependencies]
+txgnn = { git = "https://github.com/mims-harvard/TxGNN.git", rev = "0e0203c3939f7d12da27aaf10e55daaff5424023" }
+torch = "==2.0.1"
+dgl = "==1.1.2"
+numpy = "<2"
+
+[tool.pixi.feature.txgnn.tasks]
+txgnn = 'cd "$INIT_CWD" && python'
+
+[tool.pixi.feature.autosite.dependencies]
+openssl = "*"
+ca-certificates = "*"
+python = "3.11.*"
+curl = "*"
+tar = "*"
+coreutils = "*"
+bash = "*"
+[tool.pixi.feature.autosite.tasks]
+autosite = 'cd "$INIT_CWD" && "$PIXI_PROJECT_ROOT/sources/adfr/bin/autosite"'
+prepare = { cmd = ["bash", "-c", "set -eu\nmkdir -p sources/adfr-installer\ncurl --fail --location https://letsencrypt.org/certs/gen-y/int-yr1.pem --output sources/yr1.pem\ncurl --fail --location https://letsencrypt.org/certs/gen-y/root-yr-by-x1.pem --output sources/yr-by-x1.pem\nprintf '%s\\n' 'd5efc243446ef865c0e165eb1958a2f068c9514aa17238701bd6f7ad90253ce7  sources/yr1.pem' 'b3858d7a4d598b4ab6ed2892a1b8c0ee035154876dd40a082a3b05387eea11a4  sources/yr-by-x1.pem' | sha256sum --check --strict\nopenssl verify -CAfile \"$CONDA_PREFIX/ssl/cacert.pem\" -untrusted sources/yr-by-x1.pem sources/yr1.pem\ncat \"$CONDA_PREFIX/ssl/cacert.pem\" sources/yr1.pem sources/yr-by-x1.pem > sources/ca-chain.pem\ncurl --cacert sources/ca-chain.pem --fail --location https://ccsb.scripps.edu/adfr/download/1038/ --output sources/adfr.tar.gz\necho '66539864ffb7ba87728d52ee50dde78586f551c7ca96aa455dae761875faf7e4  sources/adfr.tar.gz' | sha256sum --check --strict\ntar -xzf sources/adfr.tar.gz -C sources/adfr-installer --strip-components=1\ncd sources/adfr-installer\nprintf 'N\\n' | bash install.sh -d \"$PWD/../adfr\" -c 0"], outputs = ["sources/adfr/bin/pythonsh"], inputs = [] }

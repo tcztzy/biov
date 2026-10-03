@@ -11,13 +11,11 @@ from typing import Any
 import pytest
 
 import biov.artifacts as artifacts_module
+import biov.capabilities as capabilities_module
+from biov import artifact_capabilities
 from biov.artifacts import (
     DATASETS_CLI_TIMEOUT_SECONDS,
     DATASETS_INCLUDE,
-    ArtifactNotFoundError,
-    ArtifactPackageError,
-    ArtifactServiceError,
-    UnsupportedArtifactError,
     download_genome_package,
     download_uniprot_entry,
     genome_summary,
@@ -47,6 +45,105 @@ GENOME_SUMMARY = (
     '{"reports":[{"accession":"GCF_000006945.2",'
     '"organism":{"organism_name":"Salmonella enterica"}}],"total_count":1}\n'
 )
+
+
+def test_artifact_discovery_lists_existing_pairs_without_provider_io(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    """Describe only supported pairs without resolving or caching an artifact."""
+
+    def unexpected_io(*args: Any, **kwargs: Any) -> None:
+        raise AssertionError("artifact discovery must not contact providers")
+
+    cache = tmp_path / "cache"
+    monkeypatch.setattr(artifacts_module.settings, "home", cache)
+    monkeypatch.setattr(artifacts_module, "urlopen", unexpected_io)
+    monkeypatch.setattr(artifacts_module.subprocess, "run", unexpected_io)
+
+    manifest = artifact_capabilities()
+
+    assert json.loads(json.dumps(manifest)) == manifest
+    assert manifest["version"] == 1
+    namespaces = manifest["namespaces"]
+    assert {"refseq.gcf", "uniprot", "pubmed", "geo", "pdb"} <= set(namespaces)
+    refseq = namespaces["refseq.gcf"]
+    assert refseq["provider"] == "ncbi_datasets"
+    assert refseq["default_kind"] == "genome_fasta"
+    assert {kind: record["fileType"] for kind, record in refseq["kinds"].items()} == {
+        "genome_fasta": "GENOMIC_NUCLEOTIDE_FASTA",
+        "annotation_gff3": "GFF3",
+        "rna_fasta": "RNA_NUCLEOTIDE_FASTA",
+        "cds_fasta": "CDS_NUCLEOTIDE_FASTA",
+        "protein_fasta": "PROTEIN_FASTA",
+    }
+    uniprot = namespaces["uniprot"]
+    assert uniprot["provider"] == "uniprot_rest"
+    assert uniprot["default_kind"] == "protein_fasta"
+    assert set(uniprot["kinds"]) == {"protein_fasta", "entry_json", "alphafold_cif"}
+    assert not cache.exists()
+
+    refseq["kinds"].clear()
+    assert artifact_capabilities()["namespaces"]["refseq.gcf"]["kinds"]
+
+
+@pytest.mark.parametrize(
+    ("namespace", "field", "value", "message"),
+    [
+        ("refseq.gcf", "provider", "unknown", "unsupported artifact provider"),
+        ("refseq.gcf", "default_kind", "missing", "kinds or default"),
+        ("refseq.gcf", "kinds", {"genome_fasta": {}}, "fileType and label"),
+    ],
+)
+def test_artifact_manifest_rejects_invalid_dispatch_records(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    namespace: str,
+    field: str,
+    value: Any,
+    message: str,
+) -> None:
+    """Reject invalid packaged dispatch data before any provider is selected."""
+    manifest = artifact_capabilities()
+    manifest["namespaces"][namespace][field] = value
+    (tmp_path / "artifact_capabilities.json").write_text(json.dumps(manifest))
+    monkeypatch.setattr(capabilities_module, "files", lambda _: tmp_path)
+
+    with pytest.raises(ValueError, match=message):
+        artifacts_module._artifact_capabilities.__wrapped__()
+
+
+@pytest.mark.parametrize(
+    "manifest",
+    [
+        '{"version": 2, "namespaces": {}}',
+        '{"version": 1, "namespaces": {"uniprot": {}, "uniprot": {}}}',
+        (
+            '{"version": 1, "namespaces": {"uniprot": {"kinds": '
+            '{"protein_fasta": {}, "protein_fasta": {}}}}}'
+        ),
+    ],
+)
+def test_artifact_manifest_rejects_unknown_version_and_duplicate_names(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    manifest: str,
+) -> None:
+    """Reject unsupported versions and duplicate namespace or kind definitions."""
+    (tmp_path / "artifact_capabilities.json").write_text(manifest)
+    monkeypatch.setattr(capabilities_module, "files", lambda _: tmp_path)
+
+    with pytest.raises(ValueError, match=r"version 1|duplicate"):
+        artifacts_module._artifact_capabilities.__wrapped__()
+
+
+class Response(io.BytesIO):
+    """Byte response carrying an explicit HTTP length for streaming checks."""
+
+    def __init__(self, payload: bytes):
+        """Store the payload and advertise its exact byte length."""
+        super().__init__(payload)
+        self.headers = {"Content-Length": str(len(payload))}
 
 
 class FakeDatasetsCli:
@@ -317,6 +414,67 @@ def test_datasets_cli_uses_the_official_download_command(
     ]
 
 
+def test_datasets_cli_package_honors_the_declared_size_limit(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    """Reject an oversized archive instead of extracting and publishing it."""
+    destination = tmp_path / "ncbi_dataset.zip"
+    package = _genome_package()
+
+    def fake_run(command: list[str], **kwargs: Any) -> subprocess.CompletedProcess:
+        """Write the official package bytes the CLI would write.
+
+        Returns:
+            Successful synthetic process result.
+        """
+        Path(command[command.index("--filename") + 1]).write_bytes(package)
+        return subprocess.CompletedProcess(command, 0, "", "")
+
+    monkeypatch.setattr(
+        artifacts_module.shutil, "which", lambda _: "/opt/ncbi/datasets"
+    )
+    monkeypatch.setattr(artifacts_module.subprocess, "run", fake_run)
+    monkeypatch.setattr(artifacts_module.settings, "max_file_bytes", 8)
+
+    with pytest.raises(ValueError, match="BIOV_MAX_FILE_BYTES"):
+        download_genome_package(ACCESSION, destination)
+
+    # A package the operator's ceiling admits is still published unchanged.
+    monkeypatch.setattr(artifacts_module.settings, "max_file_bytes", len(package))
+    download_genome_package(ACCESSION, destination)
+    assert destination.read_bytes() == package
+
+
+def test_path_rejects_refseq_members_over_the_declared_size_limit(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    """Apply the per-file ceiling to decompressed members before publication."""
+    downloader = FakeDatasetsCli()
+    _install_provider(monkeypatch, tmp_path, downloader)
+    monkeypatch.setattr(artifacts_module.settings, "max_file_bytes", 1)
+
+    with pytest.raises(ValueError, match=r"member .* exceeds BIOV_MAX_FILE_BYTES"):
+        path(ACCESSION)
+
+    assert not (tmp_path / "artifacts" / "refseq.gcf" / ACCESSION).exists()
+    assert downloader.download_calls == [ACCESSION]
+
+    # Every member of the same package fits under a ceiling it satisfies.
+    monkeypatch.setattr(
+        artifacts_module.settings,
+        "max_file_bytes",
+        max(
+            member.file_size
+            for member in zipfile.ZipFile(io.BytesIO(downloader.package)).infolist()
+        ),
+    )
+    artifact = path(ACCESSION)
+    assert artifact.path.read_bytes() == FASTA
+    assert artifact.size == len(FASTA)
+
+
 def test_datasets_cli_returns_official_genome_summary_stdout(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -360,15 +518,15 @@ def test_datasets_cli_returns_official_genome_summary_stdout(
 @pytest.mark.parametrize(
     ("summary", "error", "message"),
     [
-        ("not JSON", ArtifactServiceError, "valid JSON"),
+        ("not JSON", json.JSONDecodeError, "Expecting value"),
         (
             '{"reports":[],"total_count":0}',
-            ArtifactServiceError,
+            ValueError,
             "exactly one report",
         ),
         (
             '{"reports":[{"accession":"GCF_000006945.1"}],"total_count":1}',
-            ArtifactNotFoundError,
+            FileNotFoundError,
             "exact assembly version",
         ),
     ],
@@ -400,7 +558,7 @@ def test_datasets_cli_missing_or_rejected_is_a_service_error(
     """Explain a missing CLI and preserve its diagnostic when it rejects a request."""
     destination = tmp_path / "ncbi_dataset.zip"
     monkeypatch.setattr(artifacts_module.shutil, "which", lambda _: None)
-    with pytest.raises(ArtifactServiceError, match=r"install.*datasets"):
+    with pytest.raises(RuntimeError, match=r"install.*datasets"):
         download_genome_package(ACCESSION, destination)
 
     monkeypatch.setattr(
@@ -413,7 +571,7 @@ def test_datasets_cli_missing_or_rejected_is_a_service_error(
             command, 1, "", "Error: no genome package"
         ),
     )
-    with pytest.raises(ArtifactServiceError, match="no genome package"):
+    with pytest.raises(RuntimeError, match="no genome package"):
         download_genome_package(ACCESSION, destination)
 
 
@@ -432,7 +590,7 @@ def test_datasets_cli_timeout_is_a_service_error(
 
     monkeypatch.setattr(artifacts_module.subprocess, "run", hanging_run)
 
-    with pytest.raises(ArtifactServiceError, match="timed out"):
+    with pytest.raises(subprocess.TimeoutExpired):
         download_genome_package(ACCESSION, destination)
 
 
@@ -451,7 +609,7 @@ def test_uniprot_api_uses_official_entry_urls_and_preserves_responses(
         """
         requests.append((request.full_url, request.get_header("Accept"), timeout))
         payload = UNIPROT_JSON if request.full_url.endswith(".json") else UNIPROT_FASTA
-        return io.BytesIO(payload)
+        return Response(payload)
 
     monkeypatch.setattr(artifacts_module, "urlopen", fake_urlopen)
     fasta_destination = tmp_path / f"{UNIPROT_ACCESSION}.fasta"
@@ -568,7 +726,7 @@ def test_path_rejects_package_missing_the_requested_kind(
     downloader = FakeDatasetsCli(_genome_package(include_gff=False))
     _install_provider(monkeypatch, tmp_path, downloader)
 
-    with pytest.raises(ArtifactPackageError, match="missing"):
+    with pytest.raises(ValueError, match="missing"):
         path(ACCESSION, artifact="annotation_gff3")
 
     assert not (tmp_path / "artifacts" / "refseq.gcf" / ACCESSION).exists()
@@ -599,7 +757,7 @@ def test_versioned_path_never_silently_upgrades(
     downloader = FakeDatasetsCli(_genome_package(accession="GCF_000006945.3"))
     _install_provider(monkeypatch, tmp_path, downloader)
 
-    with pytest.raises(ArtifactNotFoundError, match="exact assembly version"):
+    with pytest.raises(FileNotFoundError, match="exact assembly version"):
         path(ACCESSION)
 
 
@@ -615,7 +773,7 @@ def test_versioned_path_never_silently_upgrades(
         (_genome_package(extra_members={"empty//": b""}), "unsafe"),
         (_genome_package(catalog_file_count=2), "exactly one"),
         (_genome_package(include_fasta=False), "missing"),
-        (b"not a zip", "valid ZIP"),
+        (b"not a zip", "not a zip file"),
     ],
 )
 def test_path_rejects_unsafe_or_invalid_complete_packages(
@@ -628,7 +786,9 @@ def test_path_rejects_unsafe_or_invalid_complete_packages(
     downloader = FakeDatasetsCli(package)
     _install_provider(monkeypatch, tmp_path, downloader)
 
-    with pytest.raises(ArtifactPackageError, match=message):
+    with pytest.raises(
+        zipfile.BadZipFile if package == b"not a zip" else ValueError, match=message
+    ):
         path(ACCESSION)
 
     cache_path = tmp_path / "artifacts" / "refseq.gcf" / ACCESSION
@@ -644,7 +804,7 @@ def test_failed_package_does_not_poison_later_cache_fill(
     downloader = FakeDatasetsCli(b"not a zip")
     _install_provider(monkeypatch, tmp_path, downloader)
 
-    with pytest.raises(ArtifactPackageError):
+    with pytest.raises(zipfile.BadZipFile):
         path(ACCESSION)
     downloader.package = _genome_package()
 
@@ -741,7 +901,7 @@ def test_invalid_uniprot_response_does_not_poison_later_cache_fill(
     downloader = FakeUniProtApi(b">sp|P12345|WRONG_ENTRY Wrong protein\nMA\n")
     _install_uniprot_provider(monkeypatch, tmp_path, downloader)
 
-    with pytest.raises(ArtifactNotFoundError, match="exact accession"):
+    with pytest.raises(FileNotFoundError, match="exact accession"):
         path(f"uniprot://{UNIPROT_ACCESSION}")
     downloader.fasta = UNIPROT_FASTA
 
@@ -762,7 +922,7 @@ def test_invalid_uniprot_json_does_not_poison_later_cache_fill(
     downloader = FakeUniProtApi(entry_json=b'{"primaryAccession":"P12345"}\n')
     _install_uniprot_provider(monkeypatch, tmp_path, downloader)
 
-    with pytest.raises(ArtifactNotFoundError, match="exact accession"):
+    with pytest.raises(FileNotFoundError, match="exact accession"):
         path(
             f"uniprot://{UNIPROT_ACCESSION}",
             artifact="entry_json",
@@ -797,7 +957,7 @@ def test_open_works_as_thin_standard_file_adapter(
 
 def test_path_rejects_unsupported_namespace_and_artifact_kind() -> None:
     """Dispatch only explicitly registered namespace and artifact pairs."""
-    with pytest.raises(UnsupportedArtifactError, match="uniprot"):
+    with pytest.raises(ValueError, match="uniprot"):
         path("uniprot:P12345", artifact="genome_fasta")
-    with pytest.raises(UnsupportedArtifactError, match="entry_json"):
+    with pytest.raises(ValueError, match="entry_json"):
         path(ACCESSION, artifact="entry_json")

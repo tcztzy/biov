@@ -1,0 +1,13 @@
+[tool.pixi.workspace]
+name = "biov-sequence-analysis-example"
+channels = ["https://conda.anaconda.org/conda-forge"]
+platforms = ["osx-arm64", "linux-64"]
+requires-pixi = "==0.81.0"
+
+[tool.pixi.feature.python.dependencies]
+python = "3.12.*"
+biopython = "==1.88"
+
+[tool.pixi.environments]
+default = { features = [], no-default-feature = true }
+python = { features = ["python"], no-default-feature = true }

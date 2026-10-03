@@ -1,0 +1,195 @@
+{
+  "version": 1,
+  "namespaces": {
+    "refseq.gcf": {
+      "provider": "ncbi_datasets",
+      "default_kind": "genome_fasta",
+      "kinds": {
+        "genome_fasta": {
+          "fileType": "GENOMIC_NUCLEOTIDE_FASTA",
+          "label": "genomic FASTA"
+        },
+        "annotation_gff3": {
+          "fileType": "GFF3",
+          "label": "GFF3 annotation"
+        },
+        "rna_fasta": {
+          "fileType": "RNA_NUCLEOTIDE_FASTA",
+          "label": "RNA FASTA"
+        },
+        "cds_fasta": {
+          "fileType": "CDS_NUCLEOTIDE_FASTA",
+          "label": "CDS FASTA"
+        },
+        "protein_fasta": {
+          "fileType": "PROTEIN_FASTA",
+          "label": "protein FASTA"
+        }
+      }
+    },
+    "uniprot": {
+      "provider": "uniprot_rest",
+      "default_kind": "protein_fasta",
+      "kinds": {
+        "protein_fasta": {},
+        "entry_json": {},
+        "alphafold_cif": {
+          "suffix": ".alphafold.cif",
+          "media_type": "chemical/x-mmcif"
+        }
+      }
+    },
+    "pubmed": {
+      "provider": "ncbi_file",
+      "default_kind": "article_pdf",
+      "kinds": {
+        "article_pdf": {
+          "suffix": ".pdf",
+          "media_type": "application/pdf"
+        }
+      }
+    },
+    "clinvar": {
+      "provider": "ncbi_file",
+      "default_kind": "variant_xml",
+      "kinds": {
+        "variant_xml": {
+          "suffix": ".xml",
+          "media_type": "application/xml"
+        }
+      }
+    },
+    "dbsnp": {
+      "provider": "ncbi_file",
+      "default_kind": "refsnp_json",
+      "kinds": {
+        "refsnp_json": {
+          "suffix": ".json",
+          "media_type": "application/json"
+        }
+      }
+    },
+    "geo": {
+      "provider": "ncbi_file",
+      "default_kind": "expression_matrix",
+      "kinds": {
+        "expression_matrix": {
+          "suffix": ".txt",
+          "media_type": "text/tab-separated-values"
+        },
+        "soft": {
+          "suffix": ".soft",
+          "media_type": "text/plain"
+        }
+      }
+    },
+    "pdb": {
+      "provider": "file_download",
+      "default_kind": "structure_cif",
+      "kinds": {
+        "structure_cif": {
+          "suffix": ".cif",
+          "media_type": "chemical/x-mmcif",
+          "url": "https://files.rcsb.org/download/{accession}.cif"
+        }
+      }
+    },
+    "chembl.compound": {
+      "provider": "file_download",
+      "default_kind": "structure_sdf",
+      "kinds": {
+        "structure_sdf": {
+          "suffix": ".sdf",
+          "media_type": "chemical/x-mdl-sdfile",
+          "url": "https://www.ebi.ac.uk/chembl/api/data/molecule/{accession}.sdf"
+        }
+      }
+    },
+    "pubchem.compound": {
+      "provider": "file_download",
+      "default_kind": "structure_sdf",
+      "kinds": {
+        "structure_sdf": {
+          "suffix": ".sdf",
+          "media_type": "chemical/x-mdl-sdfile",
+          "url": "https://pubchem.ncbi.nlm.nih.gov/rest/pug/compound/cid/{accession}/SDF?record_type=2d"
+        }
+      }
+    },
+    "ensembl": {
+      "provider": "file_download",
+      "default_kind": "sequence_fasta",
+      "kinds": {
+        "sequence_fasta": {
+          "suffix": ".fasta",
+          "media_type": "text/x-fasta",
+          "url": "https://rest.ensembl.org/sequence/id/{accession}?content-type=text/x-fasta"
+        }
+      }
+    },
+    "arxiv": {
+      "provider": "file_download",
+      "default_kind": "article_pdf",
+      "kinds": {
+        "article_pdf": {
+          "suffix": ".pdf",
+          "media_type": "application/pdf",
+          "url": "https://arxiv.org/pdf/{accession}"
+        }
+      }
+    },
+    "emdb": {
+      "provider": "file_download",
+      "default_kind": "density_map",
+      "kinds": {
+        "density_map": {
+          "suffix": ".map",
+          "media_type": "application/octet-stream",
+          "url": "https://ftp.ebi.ac.uk/pub/databases/emdb/structures/{accession}/map/emd_{number}.map.gz"
+        }
+      }
+    },
+    "clinicaltrials": {
+      "provider": "file_download",
+      "default_kind": "study_json",
+      "kinds": {
+        "study_json": {
+          "suffix": ".json",
+          "media_type": "application/json",
+          "url": "https://clinicaltrials.gov/api/v2/studies/{accession}"
+        }
+      }
+    },
+    "dailymed": {
+      "provider": "file_download",
+      "default_kind": "label_xml",
+      "kinds": {
+        "label_xml": {
+          "suffix": ".xml",
+          "media_type": "application/xml",
+          "url": "https://dailymed.nlm.nih.gov/dailymed/services/v2/spls/{accession}.xml"
+        }
+      }
+    },
+    "reactome": {
+      "provider": "file_download",
+      "default_kind": "pathway_sbml",
+      "kinds": {
+        "pathway_sbml": {
+          "suffix": ".sbml",
+          "media_type": "application/sbml+xml",
+          "url": "https://reactome.org/ContentService/exporter/event/{accession}.sbml"
+        }
+      }
+    },
+    "encode": {
+      "provider": "encode_file",
+      "default_kind": "data_file",
+      "kinds": {
+        "data_file": {
+          "description": "Original file selected by ENCFF accession; preserve its published extension and compression."
+        }
+      }
+    }
+  }
+}

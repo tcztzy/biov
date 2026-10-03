@@ -1,11 +1,8 @@
-"""Next-generation development experience for computational molecular biology."""
+"""High-performance bioinformatics infrastructure for AI agents."""
 
+from .alignment import align_paired_reads as align_paired_reads
 from .artifacts import Artifact as Artifact
-from .artifacts import ArtifactError as ArtifactError
-from .artifacts import ArtifactNotFoundError as ArtifactNotFoundError
-from .artifacts import ArtifactPackageError as ArtifactPackageError
-from .artifacts import ArtifactServiceError as ArtifactServiceError
-from .artifacts import UnsupportedArtifactError as UnsupportedArtifactError
+from .artifacts import artifact_capabilities as artifact_capabilities
 from .artifacts import open as open
 from .artifacts import path as path
 from .config import settings as settings
@@ -22,10 +19,6 @@ from .seq import SequenceValidationError as SequenceValidationError
 
 __all__ = [
     "Artifact",
-    "ArtifactError",
-    "ArtifactNotFoundError",
-    "ArtifactPackageError",
-    "ArtifactServiceError",
     "BioDataFrame",
     "IdentifierRef",
     "IdentifierSyntaxError",
@@ -33,7 +26,8 @@ __all__ = [
     "SequenceArray",
     "SequenceDtype",
     "SequenceValidationError",
-    "UnsupportedArtifactError",
+    "align_paired_reads",
+    "artifact_capabilities",
     "open",
     "parse_identifier",
     "path",

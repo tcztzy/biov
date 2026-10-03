@@ -29,7 +29,7 @@ plugins:
 - mkdocstrings:
     handlers:
       python:
-        rendering:
+        options:
           show_source: true
           show_root_heading: false
 
@@ -45,5 +45,9 @@ nav:
   - Typed sequence Series: guides/sequences.md
   - Identifiers.org MCP: guides/identifiers.md
   - Identifier-backed analysis: guides/artifacts.md
+  - Managed analysis: guides/analysis.md
+  - CRISPR computation: guides/crispr-computation.md
   - Configuration: guides/configuration.md
+  - Scientific environments: guides/environments.md
+  - Plugins: guides/plugins.md
 - API Reference: reference/
