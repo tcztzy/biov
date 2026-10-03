@@ -4,7 +4,7 @@ use std::{
     collections::BTreeSet,
     fs,
     io::Cursor,
-    path::PathBuf,
+    path::{Path, PathBuf},
     process::Stdio,
     sync::atomic::{AtomicU64, Ordering},
     time::{Duration, SystemTime, UNIX_EPOCH},
@@ -69,12 +69,15 @@ struct Server {
 }
 impl Server {
     async fn start(fixture: &Fixture) -> Self {
+        Self::start_roots(&fixture.data, &fixture.output).await
+    }
+    async fn start_roots(data: &Path, output: &Path) -> Self {
         let mut child = Command::new(binary())
             .arg("mcp")
             .arg("--data-root")
-            .arg(&fixture.data)
+            .arg(data)
             .arg("--output-root")
-            .arg(&fixture.output)
+            .arg(output)
             // An empty PATH also catches accidental Python/helper-process dependencies.
             .env("PATH", "")
             .env_remove("PYTHONPATH")
@@ -225,6 +228,7 @@ async fn tools_have_typed_schemas_and_sdk_protocol_errors() {
         names,
         BTreeSet::from([
             "dataset_open",
+            "dataset_reopen",
             "dataset_preview",
             "dataset_query",
             "dataset_export",
@@ -641,4 +645,285 @@ async fn command_help_and_errors_never_write_to_stdout() {
     assert!(!output.status.success());
     assert!(output.stdout.is_empty());
     assert!(!output.stderr.is_empty());
+}
+
+async fn downloaded_frame(server: &mut Server, exported: &Value) -> DataFrame {
+    let mut bytes = Vec::new();
+    loop {
+        let chunk = server
+            .successful(
+                "dataset_read_artifact",
+                json!({
+                    "artifact_id":exported["artifact_id"], "offset":bytes.len(), "max_bytes":997
+                }),
+            )
+            .await;
+        assert_eq!(chunk["offset"], bytes.len());
+        assert_eq!(chunk["sha256"], exported["sha256"]);
+        bytes.extend(STANDARD.decode(chunk["data"].as_str().unwrap()).unwrap());
+        if chunk["eof"] == true {
+            break;
+        }
+    }
+    assert_eq!(format!("{:x}", Sha256::digest(&bytes)), exported["sha256"]);
+    assert_eq!(bytes.len(), exported["bytes"].as_u64().unwrap() as usize);
+    IpcReader::new(Cursor::new(bytes)).finish().unwrap()
+}
+
+#[tokio::test]
+async fn separate_processes_reopen_preserve_complete_typed_data_and_metadata() {
+    let fixture = Fixture::new();
+    fs::write(fixture.data.join("typed.csv"), "sample,count,ratio,active\n00123,9007199254740993,1.25,true\n00002,,,false\n00002,,,false\n00003,20,2.5,\n00004,-9,-0.0,true\nskip,1,0.0,false\n").unwrap();
+    let metadata = json!({"identifier":"refseq.gcf:GCF_000001405.40", "species":null, "reference":"caller reference", "coordinates":null, "units":"caller count"});
+    let mut first = Server::start(&fixture).await;
+    let opened = first.successful("dataset_open",json!({"path":"typed.csv","schema":{"count":"int64","ratio":"float64","active":"boolean"},"metadata":metadata,"preview_rows":1})).await;
+    let derived = first.successful("dataset_query",json!({"dataset_id":opened["dataset_id"],"filter":{"column":"sample","op":"lt","value":"01000"},"sort":{"column":"sample","descending":false},"select":["sample","count","ratio","active"],"preview_rows":1})).await;
+    assert_eq!(derived["row_count"], 5);
+    let exported = first
+        .successful(
+            "dataset_export",
+            json!({"dataset_id":derived["dataset_id"]}),
+        )
+        .await;
+    let original = downloaded_frame(&mut first, &exported).await;
+    assert_eq!(original.height(), 5);
+    assert_eq!(
+        original
+            .column("sample")
+            .unwrap()
+            .str()
+            .unwrap()
+            .into_iter()
+            .collect::<Vec<_>>(),
+        vec![
+            Some("00002"),
+            Some("00002"),
+            Some("00003"),
+            Some("00004"),
+            Some("00123")
+        ]
+    );
+    assert_eq!(
+        original.column("count").unwrap().i64().unwrap().get(4),
+        Some(9007199254740993_i64)
+    );
+    assert_eq!(original.column("count").unwrap().null_count(), 2);
+    first.finish().await;
+    let second_output = fixture.root.join("second-output");
+    fs::create_dir(&second_output).unwrap();
+    let record_name = Path::new(exported["record_path"].as_str().unwrap())
+        .file_name()
+        .unwrap()
+        .to_str()
+        .unwrap();
+    let mut second = Server::start_roots(&fixture.output, &second_output).await;
+    second
+        .tool_error(
+            "dataset_preview",
+            json!({"dataset_id":derived["dataset_id"]}),
+        )
+        .await;
+    second
+        .tool_error(
+            "dataset_read_artifact",
+            json!({"artifact_id":exported["artifact_id"],"offset":0,"max_bytes":10}),
+        )
+        .await;
+    let reopened = second
+        .successful(
+            "dataset_reopen",
+            json!({"record_path":record_name,"preview_rows":1}),
+        )
+        .await;
+    assert_ne!(reopened["dataset_id"], derived["dataset_id"]);
+    assert_eq!(reopened["schema"], derived["schema"]);
+    assert_eq!(reopened["row_count"], 5);
+    assert_eq!(reopened["preview"]["omitted_rows"], 4);
+    assert_eq!(reopened["scientific_metadata"], metadata);
+    assert_eq!(reopened["source_sha256"], opened["source_sha256"]);
+    assert_eq!(
+        reopened["reopen_verification"]["artifact_sha256"],
+        exported["sha256"]
+    );
+    assert_eq!(
+        reopened["reopen_verification"]["record_sha256"],
+        format!(
+            "{:x}",
+            Sha256::digest(fs::read(fixture.output.join(record_name)).unwrap())
+        )
+    );
+    assert_eq!(
+        reopened["reopen_verification"]["authenticity"],
+        "not_established"
+    );
+    assert_eq!(
+        reopened["reopen_verification"]["original_provenance"],
+        "recorded_claims_not_independently_verified"
+    );
+    let reexported = second
+        .successful(
+            "dataset_export",
+            json!({"dataset_id":reopened["dataset_id"]}),
+        )
+        .await;
+    let all_rows = downloaded_frame(&mut second, &reexported).await;
+    assert_eq!(original.schema(), all_rows.schema());
+    assert!(original
+        .column("ratio")
+        .unwrap()
+        .f64()
+        .unwrap()
+        .get(3)
+        .unwrap()
+        .is_sign_negative());
+    assert_eq!(
+        original
+            .column("ratio")
+            .unwrap()
+            .f64()
+            .unwrap()
+            .into_iter()
+            .map(|value| value.map(f64::to_bits))
+            .collect::<Vec<_>>(),
+        all_rows
+            .column("ratio")
+            .unwrap()
+            .f64()
+            .unwrap()
+            .into_iter()
+            .map(|value| value.map(f64::to_bits))
+            .collect::<Vec<_>>()
+    );
+    assert!(
+        original.equals_missing(&all_rows),
+        "every value, null, dtype and row must survive reopening"
+    );
+    assert_eq!(reexported["record"]["scientific_metadata"], metadata);
+    assert_eq!(
+        reexported["record"]["reopen_verification"],
+        reopened["reopen_verification"]
+    );
+    assert_eq!(
+        reexported["record"]["provenance"],
+        exported["record"]["provenance"]
+    );
+    let filtered = second.successful("dataset_query",json!({"dataset_id":reopened["dataset_id"],"filter":{"column":"count","op":"eq","value":9007199254740993_i64},"preview_rows":1})).await;
+    assert_eq!(
+        filtered["preview"]["rows"],
+        json!([["00123", 9007199254740993_i64, 1.25, true]])
+    );
+    let filtered_export = second
+        .successful(
+            "dataset_export",
+            json!({"dataset_id":filtered["dataset_id"]}),
+        )
+        .await;
+    assert_eq!(
+        downloaded_frame(&mut second, &filtered_export)
+            .await
+            .height(),
+        1
+    );
+    second.finish().await;
+    let third_output = fixture.root.join("third-output");
+    fs::create_dir(&third_output).unwrap();
+    let mut third = Server::start_roots(&second_output, &third_output).await;
+    let record_name = Path::new(reexported["record_path"].as_str().unwrap())
+        .file_name()
+        .unwrap()
+        .to_str()
+        .unwrap();
+    let reopened_again = third
+        .successful("dataset_reopen", json!({"record_path":record_name}))
+        .await;
+    assert_eq!(reopened_again["row_count"], 5);
+    assert_eq!(reopened_again["scientific_metadata"], metadata);
+    third.finish().await;
+}
+
+#[tokio::test]
+async fn reopen_requires_matching_record_and_rejects_path_and_schema_errors() {
+    let fixture = Fixture::new();
+    let mut first = Server::start(&fixture).await;
+    let opened = first
+        .successful(
+            "dataset_open",
+            json!({"path":"genes.csv","schema":{"score":"int64","active":"boolean"}}),
+        )
+        .await;
+    let exported = first
+        .successful("dataset_export", json!({"dataset_id":opened["dataset_id"]}))
+        .await;
+    first.finish().await;
+    let record_path = PathBuf::from(exported["record_path"].as_str().unwrap());
+    let record_name = record_path.file_name().unwrap().to_str().unwrap();
+    let record_bytes = fs::read(&record_path).unwrap();
+    let base_record: Value = serde_json::from_slice(&record_bytes).unwrap();
+    let ipc_path = PathBuf::from(exported["execution_host_path"].as_str().unwrap());
+    let ipc_bytes = fs::read(&ipc_path).unwrap();
+    let mut second = Server::start_roots(&fixture.output, &fixture.data).await;
+    for path in [
+        "missing.json",
+        "../missing.json",
+        record_path.to_str().unwrap(),
+    ] {
+        second
+            .tool_error("dataset_reopen", json!({"record_path":path}))
+            .await;
+    }
+    second
+        .tool_error(
+            "dataset_reopen",
+            json!({"record_path":record_name,"preview_rows":51}),
+        )
+        .await;
+    let mut corruptions = Vec::new();
+    let mut value = base_record.clone();
+    value["sha256"] = json!("0".repeat(64));
+    corruptions.push(value);
+    let mut value = base_record.clone();
+    value["row_count"] = json!(999);
+    corruptions.push(value);
+    let mut value = base_record.clone();
+    value["schema"][0]["dtype"] = json!("i64");
+    corruptions.push(value);
+    let mut value = base_record.clone();
+    value["schema"][0]["name"] = json!("different");
+    corruptions.push(value);
+    let mut value = base_record.clone();
+    value["file"] = json!("../genes.csv");
+    corruptions.push(value);
+    let mut value = base_record.clone();
+    value["record_version"] = json!(999);
+    corruptions.push(value);
+    let mut value = base_record.clone();
+    value["scientific_metadata"]["identifier"] = json!("ds_not_biological");
+    corruptions.push(value);
+    for record in corruptions {
+        fs::write(&record_path, serde_json::to_vec(&record).unwrap()).unwrap();
+        second
+            .tool_error("dataset_reopen", json!({"record_path":record_name}))
+            .await;
+    }
+    fs::write(&record_path, &record_bytes).unwrap();
+    fs::remove_file(&ipc_path).unwrap();
+    second
+        .tool_error("dataset_reopen", json!({"record_path":record_name}))
+        .await;
+    fs::write(&ipc_path, b"tampered artifact").unwrap();
+    second
+        .tool_error("dataset_reopen", json!({"record_path":record_name}))
+        .await;
+    fs::write(&ipc_path, &ipc_bytes).unwrap();
+    fs::remove_file(&record_path).unwrap();
+    second
+        .tool_error("dataset_reopen", json!({"record_path":record_name}))
+        .await;
+    fs::write(&record_path, &record_bytes).unwrap();
+    let reopened = second
+        .successful("dataset_reopen", json!({"record_path":record_name}))
+        .await;
+    assert_eq!(reopened["row_count"], 5);
+    assert!(reopened["scientific_metadata"]["species"].is_null());
+    second.finish().await;
 }

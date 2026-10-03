@@ -111,6 +111,10 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v5
+      - uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7 # v10.2.0
+        with:
+          version: "0.12.9"
+          python-version: "3.12"
       - name: Check pinned Rust workspace
         run: |
           cargo fmt --all -- --check
@@ -122,3 +126,14 @@ jobs:
           cd /tmp
           /tmp/biov-native/bin/biov-rs --help
           BIOV_TEST_BINARY=/tmp/biov-native/bin/biov-rs cargo test --manifest-path "$GITHUB_WORKSPACE/Cargo.toml" -p biov-cli --test mcp_stdio --locked
+      - name: Verify moved bundles with standalone PyArrow outside checkout
+        run: |
+          uv venv /tmp/biov-portability-driver
+          uv pip install --python /tmp/biov-portability-driver/bin/python pytest==9.1.1
+          uv venv /tmp/biov-standalone-arrow
+          uv pip install --python /tmp/biov-standalone-arrow/bin/python pyarrow==25.0.1
+          cd /tmp
+          BIOV_TEST_BINARY=/tmp/biov-native/bin/biov-rs \
+            BIOV_STANDALONE_PYTHON=/tmp/biov-standalone-arrow/bin/python \
+            /tmp/biov-portability-driver/bin/python -m pytest \
+            "$GITHUB_WORKSPACE/tests/test_native_bundle_portability.py" -q

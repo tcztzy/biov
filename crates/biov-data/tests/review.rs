@@ -149,7 +149,7 @@ fn artifact_and_derivation_limits_fail_without_losing_prior_outputs() {
         fs::read_dir(directory.path().join("outputs"))
             .unwrap()
             .count(),
-        128
+        256 // 64 portable bundles, each with Arrow, record, manifest and README.
     );
 }
 

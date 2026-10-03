@@ -6,13 +6,40 @@ with thin PyO3 batch bindings. See the [sequence
 contract](sequence-contract.md) for types, errors and independent scientific
 fixtures. A separate [Rust dataset MCP slice](rust-datasets.md) now opens local
 CSV with string-safe schemas, executes full-data Polars queries and exports Arrow
-IPC through official rmcp stdio, without Python. The rest of the rewrite remains planned; pandas, Biopython and
-RuRanges' Rust-backed interval kernels still support unmigrated features.
+IPC through official rmcp stdio, without Python. The implemented bounded extension,
+`dataset_reopen`, reuses a saved JSON record and its paired IPC file after a
+server restart; its two-process acceptance is validated in the source-built
+Linux scope (SPEC T66–T67).
+The rest of the rewrite remains planned; pandas, Biopython and RuRanges'
+Rust-backed interval kernels still support unmigrated features.
 
 Rust is a deliberate choice for AI-assisted engineering: compiler-checked types,
 ownership and explicit errors can catch classes of mistakes early. This does not
 establish scientific correctness, productivity gains or speedups. The tool-manager
 product goal draws on `uv tool`/`uvx`; the language choice has its own rationale.
+
+## Non-negotiable independent-data principle
+
+Every cache and data design must let an agent quickly understand and analyze its
+saved data **without BioV**. This includes provider downloads, analytical results,
+existing caches being migrated and all future large-data designs. An agent must
+be able to move the relevant files, identify what they contain and use an
+ordinary reader without installing BioV, recovering a session or consulting the
+original checkout. A standard file extension alone does not explain its meaning.
+
+Preserve original native files. Supply the missing readable entry point, relative
+file inventory, schema/data dictionary, known context, content identities and
+lineage beside them; reuse adequate native provider metadata rather than replacing
+it. Unknown meanings, units, coordinates, samples or versions must remain unknown.
+Historical paths are provenance, not requirements for reading a moved bundle.
+Manifest/record versions and software versions never stand in for biological
+versions. Checksum agreement is consistency evidence, not authenticity or QC.
+
+The current [native result bundle](rust-datasets.md#use-a-result-without-biov)
+implements this for bounded Arrow exports. It does not migrate every BioV cache,
+raise the native session's 64 MiB retained-data charge, or establish large-data
+support. SPEC D0/V77 apply to every new design; the existing gaps below need
+separate migrations and acceptance tests.
 
 ## What changes, and what must remain trustworthy
 
@@ -57,6 +84,164 @@ These are actual source entry points, not promises to preserve every type:
   score assets, native tool dispatch and BAM sort/index behavior; moving the
   dispatcher does not authorize replacing the scientific tools or models
 
+## Data portability audit and migration gaps
+
+This is a source audit of the paths below on 2026-10-03, not a claim that every
+cache, scientific asset or output in the distribution has been exhaustively
+validated. These paths already retain useful ordinary files, but do not yet all
+satisfy SPEC D0. The new Rust result companions do not retroactively change them.
+
+- **RefSeq genome packages** (`src/biov/artifacts.py`, `_refseq_gcf_path`): retain
+  the complete extracted NCBI Datasets package, without flattening or renaming.
+  An actual `datasets 18.38.0` download of `GCF_000005845.2`, inspected on
+  2026-10-03, contains native `README.md`, `md5sum.txt`, a relative file catalog,
+  `assembly_data_report.jsonl` and `sequence_report.jsonl`. These already supply
+  discoverable file roles, checksums, assembly/annotation facts and sequence-ID
+  mappings; do not duplicate them with a BioV replacement manifest. Moving this
+  package and reading it with a Python standard-library script, with no BioV
+  imports or network calls, reproduced the same results: all seven native MD5 entries and
+  catalog file sizes matched; the genome contained 4,641,652 bases, with 4,300
+  protein FASTA records and 4,318 CDS FASTA records. These are one real-package
+  inspection's results, separate from synthetic native-table acceptance. The native
+  README links [NCBI package/JSONL guidance](https://www.ncbi.nlm.nih.gov/datasets/docs/v2/tutorials/working-with-jsonl-data-reports/)
+  but has no local analysis example. A small local
+  usage entry point/download receipt may fill that gap while preserving every
+  upstream member. This one observed package is not proof about every provider
+  package. Requested RNA was absent from the files/catalog and must be reported
+  unavailable. Its assembly release (2013-09-26) and annotation release
+  (2026-09-02) differ: assembly accession version does not freeze annotation
+- **UniProt and other provider files** (`artifacts.py`, `_uniprot_path`,
+  `_file_path`; `file_sources.py`; `ncbi_files.py`): preserve independently cached
+  UniProt entry JSON and FASTA, plus native downloaded representations for other
+  kinds. Format/accession validation alone does not establish retained-source
+  identity or every relevant version. An AlphaFold model-selection response, for
+  example, is used during retrieval but not saved alongside the chosen model.
+  Inspect each provider's native metadata first and retain only missing context
+  needed for independent use, without rewriting provider originals or inventing
+  entry/sequence/provider versions
+- **ENCODE files** (`artifacts.py`, `_encode_path`, `_encode_artifact`): preserve
+  the original downloaded filename/compression and raw `metadata.json`.
+  Download checks the provider's published MD5; current reuse checks metadata,
+  file identity and size, without recomputing that MD5. This useful native
+  evidence should be reused. Independent checksum/reuse behavior and a local
+  usage path must be explicit in its migration; extra files are needed only for
+  facts or guidance missing from the native material
+- **HTTP filecache** (`src/biov/io/_preprocess.py`, `config.py`, and
+  `src/crisprprimer/id_converter.py`): delegate cached bytes and their mapping to
+  fsspec, with `BIOV_HOME` as a default unless fsspec is configured otherwise.
+  They do not provide a documented independent inventory/usage path or
+  a moved-directory analysis example. Document or export the source mapping and
+  relevant native format/version facts; do not require BioV to recover which
+  resource a cached file represents
+- **Managed Python analysis** (`src/biov/analysis.py`): retains input snapshots,
+  complete outputs, code, parameters, logs, environment details and SHA-256
+  identities in normal files. Its `record.json`, `inputs.json`, output/snapshot
+  URIs and working directory contain original absolute locations. There is no
+  portable relative inventory/README contract. CSV dtypes are inferred for a
+  bounded preview, not declared as a full-table schema or semantic data
+  dictionary. Add a movable inventory and independent-reader acceptance without
+  weakening source stability, output identity, interruption or retention checks
+- **CRISPR/BLAT caches and results** (`src/crisprprimer/__init__.py`, `_blat` and
+  the spacer/pair Parquet writers): use standard Parquet; BLAT caches are
+  partitioned by `5-mer` and reused by query sequence within a caller-selected
+  reference cache. The persisted cache does not record reference content identity,
+  exact reference version, command/tool provenance or a portable dictionary for
+  PSL-derived columns. Choosing a separate directory is currently the caller's
+  responsibility; the cache itself cannot establish that an identically named
+  query was aligned to the same reference. Add these facts and validation before
+  treating such a cache as independently interpretable or safely transferable
+
+Software/model caches and other output writers need the same per-slice inventory
+when migrated; this audit is not evidence of their compliance. Native manager
+locks or source checkouts can supply useful version facts but do not replace a
+data-specific meaning/usage contract. Do not serialize a BioV/Python object as the
+only usable data representation.
+
+T69 tracks these open migrations. For each slice, preserve native scientific
+semantics and known lineage, make unavailable metadata explicit, move a complete
+bundle to a new directory, and use a standard reader with BioV absent to verify
+identities/schema and analyze complete data. Test meaningful filtering or
+summary, not just file existence or the first preview rows. A source checksum
+records an identity; do not require an unavailable historical source or report it
+as reverified merely because the result's checksum matches.
+
+### Reproduce the real RefSeq package inspection
+
+This opt-in download is separate from default offline tests and the native Rust
+synthetic-table acceptance. The observed source is the [NCBI assembly record for
+GCF_000005845.2](https://www.ncbi.nlm.nih.gov/datasets/genome/GCF_000005845.2/),
+*Escherichia coli* K-12 MG1655. Use the [official NCBI CLI installation
+instructions](https://www.ncbi.nlm.nih.gov/datasets/docs/v2/command-line-tools/download-and-install/).
+The inspected Linux AMD64 executable came from NCBI's [official rolling binary
+URL](https://ftp.ncbi.nlm.nih.gov/pub/datasets/command-line/v2/linux-amd64/datasets)
+and reported `datasets version: 18.38.0`; that URL is not a version-specific pin.
+In an empty working directory, the exact download invocation was:
+
+```sh
+datasets version
+datasets download genome accession GCF_000005845.2 \
+  --include gff3,rna,cds,protein,genome,seq-report \
+  --filename ncbi_dataset.zip --no-progressbar
+python -I -m zipfile -t ncbi_dataset.zip
+python -I -m zipfile -e ncbi_dataset.zip package
+(cd package && md5sum -c md5sum.txt)
+```
+
+On 2026-10-03, the ZIP was 4,154,411 bytes with SHA-256
+`ca7b17b300aca5c098b3140eb648b3845a02c63d1996072e46ee0ae09684577e`.
+This identifies that acquisition, not every later download: annotation or archive
+metadata can change without changing assembly accession `.2`. Its native tree was:
+
+```text
+package/
+  README.md
+  md5sum.txt
+  ncbi_dataset/data/
+    dataset_catalog.json
+    assembly_data_report.jsonl
+    GCF_000005845.2/
+      GCF_000005845.2_ASM584v2_genomic.fna
+      genomic.gff
+      protein.faa
+      cds_from_genomic.fna
+      sequence_report.jsonl
+```
+
+The standalone standard-library example is `scripts/inspect_refseq_example.py`.
+Copy that one script to the download directory; it does not require the rest of
+the repository or an installed BioV package. After extraction:
+
+```sh
+python -I inspect_refseq_example.py package > original.json
+cp -R package moved-package
+python -I inspect_refseq_example.py moved-package > moved.json
+cmp original.json moved.json
+```
+
+It is deliberately scoped to this small `GCF_000005845.2` example. It is not a
+general validator for other assemblies, circular features or spliced CDS.
+
+Catalog `filePath` values resolve relative to `ncbi_dataset/data`, not `package`.
+Use each `fileType` to select its representation. The report-only catalog group
+has no accession; select the accession-bearing group explicitly. Preserve native
+camelCase report keys: CLI summary JSON is a different representation.
+
+The recorded inspection also verified all GFF sequence IDs/coordinates against
+the genome and exact agreement of the GFF `protein_id` set with protein FASTA
+IDs. The simple plus-strand `thrL` CDS at `NC_000913.3:190..255` gives 66 bases
+using Python slice `[189:255]`, equal to its CDS FASTA sequence. This is a narrow
+example of GFF's 1-based inclusive conversion, not a general spliced/circular-CDS
+validator. Gene/pseudogene rows were 4,506/145; the 4,340 CDS feature rows are not
+the number of distinct proteins. Missing RNA FASTA does not imply absent RNA
+genes. A copied package produced identical analysis JSON with isolated Python
+(`-I`), no BioV imports and no network calls; network access was not separately
+blocked by a firewall or network namespace.
+
+Keep these native files intact. A small acquisition receipt or local usage
+example can add command/time/hash facts and explain entry points; neither needs
+to duplicate the provider's biological reports or change the RefSeq cache design.
+No downloaded ZIP/genome/report payload is included in this repository.
+
 ## Implementation shape
 
 Use responsibility boundaries for offline identifiers, formats, biological
@@ -70,8 +255,30 @@ Rust-side Polars is the primary analytical engine through MCP. The dataset API
 preserves identifier text by default and requires explicit numeric schemas.
 Arrow IPC files provide complete typed-table interoperability with Python
 Polars/PyArrow and other Arrow consumers, without a parallel Python analysis API
-or custom cross-process FFI. The existing small PyO3 sequence interface remains
-useful without becoming a mandatory facade for new analysis features.
+or custom cross-process FFI. New native exports use the upstream writer's
+compatible `LargeUtf8` string encoding for direct standard-reader filtering.
+This changes physical Arrow storage, not the string-safe logical schema or strict
+record v2. The existing small PyO3 sequence interface remains useful without
+becoming a mandatory facade for new analysis features.
+
+Saved dataset reuse is explicit: reopening requires a BioV export record and its
+same-directory IPC file under the configured data root, validates their byte
+identity and table structure, and creates a new session handle. It is not
+arbitrary IPC import, a persistent dataset catalog or a background-job facility.
+The original handles still expire at shutdown. Reopening checks consistency
+against the supplied record; a changed table and correspondingly changed record
+cannot be distinguished from the original by those checks. Recorded provenance
+and biological metadata are not authenticated, and reopening verification is
+retained in subsequent exports. New exports also have a same-directory README
+and manifest with relative file names for direct use without BioV. They do not
+change the strict record v2 schema or become prerequisites for paired reopening.
+The current reader accepts prior `Utf8View` and new `LargeUtf8` native strings;
+old results re-export through the standard compatible writer. Earlier development readers supporting
+only `Utf8View` cannot reopen new
+`LargeUtf8` outputs. The bounded metadata/allocation checks were extended for
+this precise physical encoding; this is not a general Arrow-import rewrite or
+an increase to the 64 MiB retained-data budget. See the [dataset contract](rust-datasets.md)
+for exact scope, limits and the separate acceptance status.
 
 The new `biov-rs mcp --data-root DIR --output-root DIR` is independently tested
 through the official Rust MCP SDK. The existing Python `biov mcp` retains its
@@ -128,6 +335,9 @@ For each slice, retain complete reference outputs and add independent evidence:
   and residue order for composition. Record constants and their provenance
 - Formats and providers: descriptions/attributes, compressed and malformed files,
   exact versioned accession selection, native file bytes and coordinate conversion
+- Independent data: relative inventory, ordinary-reader example, schema/dictionary,
+  known and unknown semantics/versions, source identities and lineage; moved-bundle
+  checksums, full-row readback and filter/summary with BioV absent (D0)
 - Execution/results: literal argv and failure propagation, no cross-host local
   paths, atomic caches/records, unknown interrupted status, no resubmission,
   complete-output reuse beyond previews and detection of missing/changed files
@@ -190,12 +400,15 @@ For a checkout or unpacked sdist, install the official Rust toolchain, a C linke
 cargo test --workspace --locked
 uv sync --locked
 uv run --locked pytest tests/ -q
-uv build
+uv build --wheel
 ```
 
 The sdist includes both Cargo.lock and uv.lock for reproducible reference tests.
-Build and install its wheel directly with `uv build --wheel` and
-`uv pip install <wheel>` if only the package is needed.
+The same wheel command works from either a checkout or an unpacked sdist; install
+the resulting wheel with `uv pip install <wheel>`. To create a new sdist as well
+as a wheel, run `uv build` from a Git checkout with tracked sources. The configured
+Git sdist generator requires that checkout, so do not use plain `uv build` to
+rebuild an unpacked sdist.
 The build needs access to crates.io and the Python package index unless their
 artifacts are cached. Rebuild the extension with `uv sync --reinstall-package biov`
 after Rust edits; Python-only source edits remain editable. Never add a Python

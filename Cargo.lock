@@ -186,6 +186,7 @@ dependencies = [
  "biov-identifiers",
  "csv",
  "polars",
+ "polars-arrow-format",
  "schemars",
  "serde",
  "serde_json",

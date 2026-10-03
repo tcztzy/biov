@@ -2,11 +2,19 @@
 
 §I and §V describe current interfaces and contracts, including the existing
 Python surface. §D describes the accepted design; §T tracks its implementation
-and validation. New Rust analytical interfaces in D12 are in progress until their
-acceptance evidence is recorded. Supported scope is stated explicitly rather than
-inferred from the broader design.
+and validation. D12's initial Rust dataset slice and paired-export reopening
+extension are implemented and validated in the documented Linux source-built
+scope (T63–T67). Supported scope is stated explicitly rather than inferred from
+the broader design. D0 applies to every cache/data design; portable native-result
+companions have their own acceptance gate (T68), with legacy migration gaps (T69).
 
 ## §G GOAL
+**Non-negotiable: all cache and data designs must let an agent quickly understand
+and analyze the saved data without BioV.** This applies to current migration work
+and every future design, including large-data storage. Standard-readable bytes
+alone are insufficient if their meaning, sources or usage remain hidden in BioV.
+D0 defines the invariant; current implementation gaps remain explicit.
+
 Make BioV a biology-focused tool manager, especially for the workflows served by
 `uv tool` and `uvx`: find, install, run, reuse, inspect, update and remove tools
 without making users or agents remember where each task's environment was built.
@@ -29,6 +37,7 @@ in code. Task-specific orchestration and biological interpretation remain with
 the agent or workflow using BioV.
 
 ## §C CONSTRAINTS
+- All cache/data designs obey D0: complete standard/native data, independently discoverable meaning and lineage, portable relative references, and a tested analysis path without BioV; no exception for future large-cache designs and no claim that unmigrated caches already comply
 - Target: BioV-owned main logic in Rust; Rust-side Polars/MCP analytics with Arrow IPC interoperability and optional thin Python bindings (D9–D12); no requirement for a parallel Python analysis API or legacy compatibility layers. Active development permits explicit breaking API changes. Python `>=3.12` describes the current package, not a permanent Rust-core constraint
 - RuRanges-only and Biopython-only backend restrictions are superseded by contract-gated Rust migration; library choice does not change public scientific semantics
 - interval semantics ≠ sequence semantics; ⊥ new DataFrame subclass or large framework
@@ -45,6 +54,42 @@ the agent or workflow using BioV.
 
 ## §D ACCEPTED DESIGN
 
+D0: **Saved data must remain quickly understandable and usable for analysis by an
+agent after leaving BioV.** Apply this to provider caches, derived tables,
+managed-analysis outputs and any future cache/storage design. An internal
+optimization may exist, but cannot be the sole usable representation or the sole
+source of meaning. A live service, session handle, BioV package, repository
+checkout, private database or original machine path must not be needed to read
+and analyze a retained data bundle.
+
+Keep complete data in established standard/native formats, preserving original
+provider files and package layouts. Put a short readable entry point and an
+inspectable machine-readable inventory beside the data, or reuse equivalent
+native provider material. Identify files by paths relative to the movable bundle;
+document formats, ordered schema/data dictionary, null conventions, known
+scientific context, source content identities and transformation lineage. Keep
+unavailable fields explicitly unknown, distinct from not applicable; do not infer
+column meanings, units, coordinates, sample identity, assemblies, versions or QC
+from names, dtypes or success codes. Keep declared facts distinct from verified
+ones. A format/manifest schema version, BioV/tool version, biological accession
+version, provider release, entry version and sequence version are separate facts.
+
+Document an ordinary independent-reader example. Acceptance moves the bundle out
+of the original location and uses standard tools with BioV absent to verify
+checksums/schema, read the complete data, and filter/summarize it. Do not rely on
+previews, original sources, an external/live catalog or BioV-specific wrappers.
+Historical source paths can remain recorded evidence but are not portability
+requirements. Source digests identify the recorded inputs; they do not imply
+those inputs were bundled or independently reverified. Checksums establish
+consistency against supplied metadata, not authenticity or scientific validity.
+
+This is a design gate, not a retrospective claim of full compliance. The native
+Arrow result companions in D12 are the first bounded implementation; the audited
+Python/provider/fsspec/CRISPR gaps in the [migration
+guide](docs/guides/rust-migration.md#data-portability-audit-and-migration-gaps)
+remain open (T69). Apply the gate to each migration and every new design. It does
+not expand the current 64 MiB retained-data budget or claim a large-cache engine.
+
 D1: Users select data and an analysis, then inspect or reuse its results. The
 MCP server provides analysis execution and result access using shared
 core logic. Existing managed script analysis is Python-based; Rust-side
@@ -55,7 +100,7 @@ Deployment configuration remains operator-owned; routine tool lifecycle is a
 BioV product responsibility (D6–D8). Analysis execution remains distinct from
 deployment management; this design does not require new MCP management tools.
 V64 describes the current deployment boundary. The existing Python MCP route and
-the in-progress Rust stdio route have separately stated supported scopes.
+the native Rust stdio route have separately stated supported scopes.
 
 D2: Each supported analysis declares its inputs, outputs and the metadata needed
 to use them correctly. These requirements are inspectable by the caller and
@@ -121,7 +166,8 @@ to confirm status does not prove task failure and must not trigger automatic
 resubmission of an unconfirmed run.
 An inspectable analysis record retains the actual inputs and outputs, code or
 command, parameters, available data/software versions and environment identity,
-and logs. Record input locations, byte sizes and content identities for all
+and logs. D0 also requires these facts to remain interpretable outside BioV.
+Record input locations, byte sizes and content identities for all
 sources, including local files and identifier-backed data; a path or unversioned
 accession alone does not fix content. Reuse verified checksums or immutable
 content versions where available; otherwise compute a digest. Establish input
@@ -229,7 +275,8 @@ Use logical boundaries with directed dependencies:
 - **data**: provider resolution and fetching, biological datasets, provenance and
   available scientific metadata; compose identifiers, formats and cache services
 - **cache**: locations, atomic storage and content/ownership/retention mechanics;
-  provider selection and scientific interpretation remain outside this boundary
+  provider selection and scientific interpretation remain outside this boundary;
+  its stored data must satisfy D0 independently of BioV
 - **tools**: existing manager backends, environment lifecycle and literal native
   execution, with the D6–D8 ownership and failure rules
 - **optional Python**: small bindings or ecosystem adapters when justified;
@@ -336,17 +383,20 @@ portable binaries. Keep scientific environment platform support separate from
 BioV package support. Do not advertise Rust speedups without reproducible
 release-build, representative-data measurements of conversion, memory and runtime.
 
-D12: The implemented first analytical slice is a local Rust/Polars dataset workflow over
-`biov-rs mcp --data-root DIR --output-root DIR`, using the official `rmcp` stdio
-server. The bounded scope below is validated on Linux x86_64 through real stdio
-subprocess tests, including an installed binary outside the checkout (T63–T65).
-Desktop-client integration and portable prebuilt releases remain unclaimed. The tool
-surface is `dataset_open`, `dataset_preview`, `dataset_query`, `dataset_export`,
-`dataset_read_artifact` and `dataset_release`. It opens local UTF-8 CSV files
-with a header, provides schema, exact materialized row count and bounded previews,
-creates derived datasets from complete-data operations, and exports Arrow IPC.
-No TSV, Parquet, Arrow IPC input, aggregation, arbitrary SQL or code execution is
-claimed in this slice. This is a data-handling foundation, not biological
+D12: The implemented analytical slice is a local Rust/Polars dataset workflow
+over `biov-rs mcp --data-root DIR --output-root DIR`, using the official `rmcp`
+stdio server. The initial CSV/query/export scope is validated on Linux x86_64,
+including an installed binary outside the checkout (T63–T65). Paired-export
+reopening is implemented and source-built Linux acceptance covers two real MCP
+processes (T66–T67). Desktop-client integration and portable prebuilt releases
+remain unclaimed. The seven tools are `dataset_open`, `dataset_reopen`,
+`dataset_preview`, `dataset_query`, `dataset_export`, `dataset_read_artifact`
+and `dataset_release`. The server opens local UTF-8 CSV files with a header,
+provides schema, exact materialized row count and bounded previews, creates
+derived datasets from complete-data operations, exports Arrow IPC and reopens
+previously exported JSON records with their paired IPC files. No arbitrary Arrow
+IPC import, TSV, Parquet, aggregation, arbitrary SQL or code execution is claimed
+in this slice. This is a data-handling foundation, not biological
 normalization, sequence/interval parity or completed tool lifecycle management.
 
 Opening reads one bounded in-memory byte snapshot and computes the input SHA-256
@@ -390,10 +440,17 @@ as if provider-verified, or report unperformed biological checks as passed.
 The concrete initial resource limits are:
 
 - CSV input: 16 MiB; one to 64 columns, each name one to 128 UTF-8 bytes
+- Paired reopen: 64 KiB JSON record and 65 MiB IPC byte snapshot; export checks
+  these same byte caps before publishing either file; at most 1 MiB
+  per IPC footer/message metadata block, 4096 record batches and 4096 buffers
+  per batch. Record/file paths are at most 1024 bytes. These are parser limits,
+  not an increase in the retained-data budget or a process-memory ceiling
 - Session datasets: at most 16 handles and a 64 MiB retained-data charge, summing
   each Polars estimated size plus 17 bytes per cell to cover omitted string-view
   buffers and validity overhead conservatively. CSV preflight also checks this
-  per-cell charge before Polars allocation. This is not a peak-memory ceiling
+  per-cell charge before Polars allocation. IPC preflight combines decoded
+  logical payload, 17 bytes per cell and the currently retained charge before
+  full decoding. This is not a peak-memory ceiling
 - Preview: zero to 50 rows, default five; 24 KiB serialized-row budget and
   256-byte text-cell limit, with omitted rows and truncated cells explicit
 - Derivation: at most 32 recorded steps and 8 KiB serialized provenance on open and query;
@@ -422,22 +479,116 @@ paths through this surface.
 
 Each export saves the complete Arrow IPC file and an adjacent JSON record with
 schema, row count, source snapshot identity, transformation provenance, declared
-metadata, software information, output byte count and SHA-256. Files persist
+metadata, software information, output byte count and SHA-256. The upstream
+Polars IPC writer's oldest compatibility setting emits strings as Arrow
+`LargeUtf8` (`large_string` in PyArrow), supporting direct ordinary-reader
+filtering without a BioV wrapper or reader-side string cast. Other primitive
+logical types and strict record v2 fields are unchanged. Files persist
 independently of the server session and are not automatically deleted on dataset
-release or shutdown. Dataset and artifact handles both expire with the session;
-restart recovery/cataloguing is not implemented by persistent files alone.
+release or shutdown. Dataset and artifact handles both expire with the session.
 `dataset_release` frees only a dataset handle and leaves saved exports intact.
+
+New exports additionally save `artifact_<id>.manifest.json` (manifest version 1)
+and `artifact_<id>.README.md` beside the existing Arrow and strict version-2
+record. The manifest uses same-directory basenames for Arrow/record/README,
+records Arrow and record byte sizes/SHA-256, complete row count, ordered
+column types/null counts and explicitly unknown column semantics. It retains
+caller-declared scientific metadata, syntax-only parsed identifier/version facts,
+source identity and historical location, ordered operations, declared CSV schema,
+software facts and reopening context. Source paths are historical references,
+not required bundle members; the original source is not implicitly included.
+Unknown meanings, column units/coordinates and independent reference/provider/
+entry/sequence versions remain null. Format/manifest versions and software
+versions never fill those biological fields. See the [native dataset
+guide](docs/guides/rust-datasets.md#use-a-result-without-biov) for field details.
+
+The README has a standard-PyArrow example requiring no BioV: verify file sizes
+and hashes, read all rows, check schema/count, filter and summarize. These
+companions are descriptive, untrusted data; paired reopening still checks only
+the strict JSON record and IPC and does not require or validate companions.
+The existing strict record v2 schema is unchanged. Companion limits are 128 KiB
+for the manifest and 16 KiB for the README, checked with the existing caps before
+any final filename is published. Publication of all four files is not a single
+atomic transaction; I/O failure can leave a partial group, but no completed
+export or artifact handle is reported before all four are saved. The MCP export
+response adds host `manifest_path`/`readme_path`, not their complete bodies;
+`dataset_read_artifact` remains Arrow-only. A remote client needs an authorized
+ordinary file transfer to acquire the companions. Host paths alone do not make
+a complete bundle available remotely.
+
+The paired-export reopening contract is `dataset_reopen({record_path, preview_rows})`,
+where `record_path` is a `.json` record path relative to the configured data root and
+`preview_rows` defaults to five with the normal preview bounds. Reopening requires
+both files: the record's `file` must be a basename naming the IPC file in the same
+directory, matching the native `artifact_<32 lowercase hexadecimal digits>.arrow`
+name and recorded artifact ID. An in-root record symlink uses the canonical
+record's parent directory to locate its IPC file. Both resolved paths must remain
+inside the data root. Reject
+absolute paths, parent traversal, symlink escapes and arbitrary IPC-only input.
+Read the bounded IPC bytes once; compute the SHA-256 and parse the complete table
+from that same in-memory snapshot. Validate record version and format, byte size,
+SHA-256, ordered schema against actual supported column types, row count and
+metadata fields before publishing a new session handle. Missing, malformed,
+unsupported or mismatched pairs fail explicitly, without reparsing a CSV source,
+silently recomputing the result or importing unchecked IPC. Retained dataset,
+preview and provenance budgets still apply. IPC is restricted to native
+little-endian, uncompressed, flat string/int64/float64/boolean exports; preflight
+rejects dictionaries, extensions, other types and unsupported metadata before
+the full Polars schema/array allocation. String storage accepts both current
+`LargeUtf8` and the prior native `Utf8View` encoding. This remains a narrow
+preflight using upstream Arrow metadata definitions before the standard Polars
+reader, not a new generic Arrow import implementation. For `LargeUtf8`, require
+exactly `(rows + 1) * 8` offset bytes, a zero first offset, nonnegative monotonic
+offsets within the values buffer, valid UTF-8 with every offset on a character
+boundary, and a final offset equal to the values-buffer length. Charge complete
+string payload plus the existing 17 bytes/cell and retained datasets under the
+same 64 MiB budget; no bound is relaxed for compatibility.
+
+Read initial-slice record version 1 and version 2; export version 2 with a
+`reopen_verification` field that is null for CSV-opened datasets. Re-exporting
+old native `Utf8View` uses the upstream compatible writer and emits `LargeUtf8`.
+This is one-way runtime compatibility: earlier development readers supporting
+only `Utf8View` cannot reopen these newer `LargeUtf8`
+exports. The unchanged record schema version describes logical record fields,
+not a guarantee that an older binary accepts a newly supported physical encoding.
+
+Successful reopening exposes `reopen_verification` and carries its verification
+context through queries into the next export record. The context includes the
+record path and SHA-256, artifact SHA-256 and bytes, record version, the checks
+`artifact_bytes`, `artifact_sha256`, `schema` and `row_count`, and the states
+`input_consistency: parsed_same_in_memory_snapshot_as_digest`,
+`original_provenance: recorded_claims_not_independently_verified` and
+`authenticity: not_established`. A later reopen replaces this context with its
+current checks instead of nesting prior verification objects. These checks establish
+consistency between the supplied record and the exact table bytes consumed.
+The record is not a trusted signature or security attestation: changing the IPC
+and updating its record together can pass these checks. Recorded source history,
+software claims and biological metadata remain recorded/unverified; file
+integrity does not establish provider authenticity, biological correctness or
+QC. Do not silently promote caller declarations into verified scientific facts.
+
+After a restart, configure the old export directory as the new data root and
+explicitly reopen a saved pair to obtain a fresh handle. Reopening neither
+resurrects old dataset/artifact handles nor reconstructs a persistent catalog.
+The saved JSON and IPC files are the reusable artifacts; no daemon database,
+background job, automatic recovery or general-purpose import mode is introduced.
 
 An execution-host path is not proof that a remote MCP client has the file.
 `dataset_read_artifact` provides explicit bounded transfer during the originating
 session, verifying the saved bytes against their export identity before returning
 a chunk. Validate full client-side reconstruction and independent Arrow readback,
-including rows omitted from previews. Broader provider ingestion, durable
-catalogues, restart-time retrieval, scientific metadata inference, lifecycle
-additions and retirement of the Python route require separate contracts and
-validation.
+including rows omitted from previews. Reopening a pair already present on the
+execution host does not transfer it from a remote client or restore an expired
+artifact retrieval handle; export the reopened or queried dataset to obtain a
+new session artifact handle. Broader provider ingestion, durable catalogues,
+automatic restart-time retrieval, scientific metadata inference, lifecycle
+additions and retirement of the Python route require separate contracts and validation.
 
-### D12 acceptance cases (in progress)
+### D12 acceptance cases
+
+The initial local-table cases are validated by T63–T65. T66–T67 validate
+paired-export reopening and two-process reuse in the Linux source-built scope.
+T68 separately gates the portable companion bundle with no BioV in the reader.
 
 ```gherkin
 Feature: Complete local datasets through Rust MCP and Arrow IPC
@@ -471,6 +622,59 @@ Feature: Complete local datasets through Rust MCP and Arrow IPC
     And a persistent JSON record identifies the source snapshot and operations
     When I release the dataset handle
     Then the handle is unusable and the exported files remain intact
+
+  Scenario: Analyze a moved result bundle without BioV
+    Given an exported Arrow, strict record, descriptive manifest and README
+    And the table contains typed values, nulls, leading-zero IDs and duplicate rows
+    When I move those four files to a new directory and remove the original source
+    And I use the README's ordinary-reader example with BioV absent
+    Then only bundle-relative filenames are needed to find the result files
+    And Arrow and strict-record byte counts and checksums agree with the manifest
+    And the complete table schema, rows, types, nulls, duplicates and order match
+    And filtering and numeric summaries include rows absent from the original preview
+    And known declarations and source hashes are inspectable without BioV
+    And unavailable meanings, scientific context and biological versions remain unknown
+    And consistency checks do not authenticate the producer or validate biology
+
+  Scenario: Reopen a complete saved result in a second MCP process
+    Given MCP process A opens a CSV with explicitly declared primitive types
+    And the complete input contains identifiers with leading zeros, duplicate rows and nulls
+    When A filters, stably sorts and selects columns from the complete dataset
+    And A exports the derived result as an IPC file and adjacent JSON record
+    And I reconstruct every exported IPC byte and independently read the complete table
+    And I close A's stdin and wait for its clean exit
+    And I start MCP process B with A's output directory as its data root and a new output directory
+    Then A's dataset and artifact handles cannot be used in B
+    When B calls dataset_reopen with the saved record's relative path and preview_rows 1
+    Then B returns a fresh dataset handle, exact schema and full row count
+    And reopen_verification describes record-to-byte and record-to-table consistency checks
+    And the preview does not replace any rows in the reopened dataset
+    When B previews, queries and exports the reopened dataset
+    And I reconstruct B's full export, verify its SHA-256 and independently read it
+    Then every expected row, column type, null, duplicate and ordering matches
+    And the new export record preserves the reopening verification context
+    And recorded provenance and biological metadata are not reported as authenticated
+
+  Scenario Outline: Refuse an unusable export pair without fallback
+    Given a saved JSON record and its adjacent IPC file
+    And the pair <problem>
+    When I call dataset_reopen with the record's data-root-relative path
+    Then I receive a bounded explicit tool error and no new dataset handle
+    And no original input is reloaded, result recomputed or unchecked IPC imported
+    And existing completed exports remain unchanged
+
+    Examples:
+      | problem                                                 |
+      | has a missing record or IPC file                         |
+      | contains malformed JSON or an unsupported record version |
+      | declares an unsupported format                          |
+      | names an absolute or non-basename IPC path               |
+      | resolves either file outside the data root               |
+      | exceeds a documented record or IPC limit                 |
+      | has a byte size or SHA-256 mismatch                       |
+      | has a column name, order or actual type mismatch          |
+      | has a row count mismatch                                 |
+      | has invalid scientific metadata fields                   |
 
   Scenario: Preserve identifier spelling and numeric-looking text by default
     Given a CSV row has record_id 001 and measurement 9007199254740993.0010
@@ -522,7 +726,7 @@ Feature: Complete local datasets through Rust MCP and Arrow IPC
 ## §I INTERFACES
 The following entries describe the existing Python interfaces unless marked
 otherwise. The independent Rust MCP dataset route is specified in D12 and tracked
-in T63–T65; the native dataset guide records its verified scope.
+in T63–T67; the native dataset guide records its verified scope.
 
 - api: `BioDataFrame.overlap(other, how, seqid_col, start_col, end_col, strand_col)` → selected self rows
 - api: `BioDataFrame.intersect(other, seqid_col, start_col, end_col, strand_col)` → clipped self rows per overlap pair
@@ -685,6 +889,7 @@ V74: paired-read alignment uses run_software for BWA indexing and alignment, kee
 
 V75: Rust migration defines and tests its selected CLI/MCP and any optional Python contracts; Rust-side Polars/MCP is the primary analytical direction and Arrow IPC provides table interoperability; breaking API/type changes are explicit and need no Python mirror or legacy shim; complete scientific outputs, metadata and data integrity remain validated independently of interface compatibility
 V76: native release support is claimed only for tested distribution targets; no compiler is required for supported prebuilt wheels, while source builds declare their toolchain requirements
+V77: every cache/data design obeys D0; copied/moved bundles must be discoverable, interpretable and analyzable with ordinary readers without BioV; preserve complete native data, explicit unknowns, relative inventory, content identities and lineage; current legacy gaps stay visible and require separate migration acceptance
 
 ## §T TASKS
 id|status|task|cites
@@ -755,6 +960,11 @@ T62|partial|the local native dataset MCP slice and source-installed binary are v
 T63|x|fix the first local Rust/Polars MCP dataset contract, string-safe defaults and explicit schemas, supported operations, handle lifetime, path boundaries and resource limits; distinguish unknown biological metadata and session handles from identifiers; record complete-data/export/chunk-retrieval/readback acceptance and the curated offline identifier subset|D2,D3,D4,D9,D10,D12,V75
 T64|x|implement official rmcp stdio behind biov-rs mcp with configured data/output roots, local CSV open/schema/row count/bounded preview, complete-data filter/sort/select into derived datasets, Arrow IPC plus record export, explicit bounded retrieval and dataset release; keep the existing Python MCP route separate|D9,D11,D12,V20,V75
 T65|x|validate the new native workflow through an MCP client and independent Arrow IPC readback, including records beyond previews, identifier/numeric-text fidelity, explicit numeric schemas, duplicates/nulls/order, digest-verified chunk reconstruction, unknown metadata, handle expiry, errors/limits/path confinement and clean stdio; update the actual supported scope only after checks pass|D2,D3,D4,D10,D11,D12,V75,V76
+T66|x|implement dataset_reopen for a previously exported root-confined JSON record and same-directory IPC pair, validating record version/format, bounded same-snapshot bytes and digest, schema/actual types, row count and metadata before issuing a fresh session handle; expose and persist reopening verification context without authenticating recorded provenance or biological metadata|D2,D3,D4,D9,D12,V75
+T67|x|validate complete cross-process reuse in source-built Linux through real MCP processes A and B: typed CSV open/filter/sort/select/export/EOF, reopen/preview/query/re-export and independent full-table/digest readback; cover types/nulls/order/duplicates, expired handles, missing/tampered/mismatched pairs, limits and path escapes with no fallback; 29 biov-data tests and all nine real MCP subprocess cases pass|D2,D3,D4,D10,D11,D12,V75,V76
+
+T68|x|add native export README and versioned companion manifest without changing strict record v2; emit upstream-compatible LargeUtf8 for direct standard-reader filtering and retain prior Utf8View paired reopen through bounded metadata/allocation preflight; validate moved-directory independent standard-reader checksums/schema/full rows/filter/summary with BioV absent, explicit unknown meanings/versions and honest trust scope; installed Linux no-cast PyArrow 25.0.1 acceptance, 39 biov-data tests and all nine MCP subprocess cases pass|D0,D2,D3,D4,D12,V77
+T69|planned|migrate audited Python provider/fsspec/managed-analysis/CRISPR cache and output gaps to D0 in contract-sized slices; preserve original provider bytes and native layouts, add missing portable inventory/dictionaries/source identities/lineage and independent-reader acceptance; do not claim global compliance from T68|D0,D2,D4,D7,D10,V77
 
 ## §B BUGS
 id|date|cause|fix

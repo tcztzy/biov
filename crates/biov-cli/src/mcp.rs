@@ -8,7 +8,7 @@ use std::{
 
 use biov_data::{
     DatasetStore, ExportRequest, OpenRequest, PreviewRequest, QueryRequest, ReadArtifactRequest,
-    ReleaseRequest,
+    ReleaseRequest, ReopenRequest,
 };
 use rmcp::{
     handler::server::{router::tool::ToolRouter, tool::Parameters},
@@ -75,6 +75,17 @@ impl DatasetServer {
     }
 
     #[tool(
+        description = "Reopen a saved BioV Arrow IPC artifact using its mandatory JSON record under the configured data root. Validates bytes, schema and row count, preserving typed data and recorded metadata. Matching hashes do not authenticate the producer or independently verify provenance.",
+        annotations(read_only_hint = true, open_world_hint = false)
+    )]
+    async fn dataset_reopen(
+        &self,
+        Parameters(request): Parameters<ReopenRequest>,
+    ) -> Result<CallToolResult, rmcp::ErrorData> {
+        Ok(self.execute(move |store| store.reopen(request)).await)
+    }
+
+    #[tool(
         description = "Preview a bounded initial sample of rows from an open dataset. Reuse its opaque dataset handle rather than reopening or sending full data.",
         annotations(read_only_hint = true, open_world_hint = false)
     )]
@@ -97,7 +108,7 @@ impl DatasetServer {
     }
 
     #[tool(
-        description = "Export an open dataset (including a derived query result) as an artifact under the configured output root. Returns an opaque artifact handle and provenance; never a full unbounded payload.",
+        description = "Export a complete dataset or query result under the configured output root as standard Arrow IPC with a JSON record, relative-path manifest and readable README. These files remain usable by standard readers without BioV. Returns file paths, a session artifact handle and provenance; never a full unbounded payload.",
         annotations(
             read_only_hint = false,
             destructive_hint = false,
