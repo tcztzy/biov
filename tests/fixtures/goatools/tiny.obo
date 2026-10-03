@@ -1,0 +1,20 @@
+format-version: 1.2
+data-version: biov-synthetic-go-1
+ontology: go
+
+[Term]
+id: GO:0008150
+name: biological_process
+namespace: biological_process
+
+[Term]
+id: GO:9000001
+name: synthetic alpha
+namespace: biological_process
+is_a: GO:0008150 ! biological_process
+
+[Term]
+id: GO:9000002
+name: synthetic beta
+namespace: biological_process
+is_a: GO:0008150 ! biological_process
