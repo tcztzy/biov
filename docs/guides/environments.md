@@ -24,6 +24,15 @@ manager executables. The Samtools route requires Pixi 0.81.0. The GOATOOLS route
 requires uv and the Python interpreter paired with the installed BioV package,
 so use the complete wheel rather than a standalone Cargo binary to install it.
 It does not select an ambient PATH Python or download another interpreter.
+Supported paired deployments are `uv tool install biov` and installing the complete
+wheel with pip inside an ordinary virtual environment. Ad-hoc `--user`,
+`--prefix` or `--target` layouts and relocated standalone binaries do not guarantee
+a sibling Python; GOATOOLS installation and Python-backed routes fail explicitly
+when it is absent. Pure native routes do not require that interpreter.
+
+uv 0.12.9 passed packaging CI and uv 0.12.19 passed the local real-tool gates.
+Other versions are not promised; an unsupported option produces the upstream
+error and a BioV backend-failure diagnostic, without another backend fallback.
 
 `--environment-root DIR` overrides `BIOV_ENVIRONMENT_ROOT`; otherwise the native
 root is `$XDG_DATA_HOME/biov/environments` or
@@ -52,6 +61,15 @@ activation. GOATOOLS installation delegates to `uv tool install goatools==1.6.5
 no project configuration. uv exposes GOATOOLS' upstream console scripts, including
 `goatools` and `find_enrichment.py`; BioV does not invent another wrapper.
 
+Isolation here concerns installation directories and owned inventory, not a
+sanitized process environment or isolated package index. uv configuration-file
+discovery is disabled, but manager environment settings remain inherited,
+including `UV_INDEX_URL`, `UV_DEFAULT_INDEX`, `UV_INDEX`, `UV_FIND_LINKS`,
+`UV_OFFLINE` and applicable `PIXI_OFFLINE`/`PIXI_FROZEN` settings. They may alter
+resolution sources or prevent a new install. BioV does not scrub proxy/authentication
+or other backend settings; explicit tool/bin/cache roots and paired `--python`
+remain selected. No full transitive-lock or public-index-only guarantee is implied.
+
 These routes pin the primary tool versions and the declared statsmodels
 compatibility dependency. Remaining dependencies are resolved by the upstream
 manager. They do not consume the shipped scientific Pixi lock or promise a
@@ -77,6 +95,12 @@ in these roots. There is no copied BioV runner, custom installed registry or
 publication journal. The GOATOOLS virtual environment still needs its base Python
 installation; deleting that interpreter can break it. These are software
 installations, not relocatable biological data bundles.
+
+Management install/list/uninstall requires the corresponding external manager to
+remain available through `--pixi`, `--uv`, their BioV environment selectors or PATH.
+Removing uv/Pixi itself prevents later management operations until it is restored;
+it is not the same as removing the BioV management wheel. Existing upstream
+entrypoints do not invoke the BioV executable.
 
 `biov uninstall NAME` delegates to the selected backend, removing that owned
 user-tool environment and its exposed commands. It does not delete the other

@@ -260,6 +260,16 @@ def test_real_upstream_tools_survive_uninstalling_management_wheel(tmp_path):
     assert manager.is_file()
     assert not (management_bin / "biov-rs").exists()
     management_prefix = manager.resolve().parent.parent
+    assert manager.resolve() != Path(BINARY).resolve()
+    paired_base = run(
+        [
+            management_prefix / "bin" / "python",
+            "-I",
+            "-c",
+            "import pathlib,sys; print(pathlib.Path(sys._base_executable).resolve())",
+        ],
+        "management-base-interpreter",
+    ).stdout.strip()
     options = ["--environment-root", root, "--pixi", pixi, "--uv", uv]
     empty = run([manager, "list", *options], "empty-inventory")
     assert "No native tools installed" in empty.stdout
@@ -294,6 +304,8 @@ def test_real_upstream_tools_survive_uninstalling_management_wheel(tmp_path):
     assert "samtools" in listing.stdout and "1.24" in listing.stdout
     assert "goatools" in listing.stdout and "1.6.5" in listing.stdout
     goat_python = upstream_tools / "goatools" / "bin" / "python"
+    assert goat_python.resolve() == Path(paired_base)
+    assert not goat_python.resolve().is_relative_to(management_prefix)
     packages = run(
         [
             goat_python,

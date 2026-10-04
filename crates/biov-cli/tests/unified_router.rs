@@ -189,3 +189,27 @@ fn empty_global_list_requires_no_managers_or_directory_creation() {
     assert!(String::from_utf8_lossy(&output.stdout).contains("No"));
     assert!(!root.exists());
 }
+
+#[cfg(all(target_os = "linux", target_arch = "x86_64"))]
+#[test]
+fn goatools_install_requires_paired_python_before_manager_or_root_mutation() {
+    let directory = tempfile::tempdir().unwrap();
+    let executable = directory.path().join("biov");
+    fs::copy(binary(), &executable).unwrap();
+    let root = directory.path().join("environments");
+    let output = Command::new(executable)
+        .args([
+            "install",
+            "--environment-root",
+            root.to_str().unwrap(),
+            "--uv",
+            "/must-not-run-uv",
+            "goatools",
+        ])
+        .env("PATH", "")
+        .output()
+        .unwrap();
+    assert_eq!(output.status.code(), Some(2));
+    assert!(String::from_utf8_lossy(&output.stderr).contains("paired"));
+    assert!(!root.exists());
+}

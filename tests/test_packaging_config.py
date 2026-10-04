@@ -91,3 +91,12 @@ def test_sdist_keeps_the_workspace_and_excludes_host_plugin_configuration() -> N
         assert f"prune {directory}" in manifest.splitlines()
     assert "exclude tests/test_plugin_distribution.py" in manifest.splitlines()
     assert "setup.cfg" in manifest
+
+
+def test_python_distribution_and_native_workspace_versions_match() -> None:
+    """The single public command and Python distribution share one release version."""
+    with (ROOT / "Cargo.toml").open("rb") as stream:
+        cargo = tomllib.load(stream)
+    assert (
+        _pyproject()["project"]["version"] == cargo["workspace"]["package"]["version"]
+    )
