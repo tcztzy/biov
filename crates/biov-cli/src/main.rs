@@ -2,6 +2,7 @@
 //! one-shot local commands write a single bounded JSON result there instead.
 mod mcp;
 mod prepared_cli;
+mod python_bridge;
 mod storage_cli;
 mod tools_cli;
 
@@ -12,7 +13,7 @@ use biov_prepared::PreparedStore;
 use biov_storage::NativeStore;
 use rmcp::{transport::stdio, ServiceExt};
 
-const HELP: &str = "BioV native dataset, storage, prepared and locked-tool interfaces\n\nUsage:\n  biov-rs mcp --data-root DIR --output-root DIR [--store-root DIR]\n  biov-rs storage register --store-root DIR --source-root DIR --request-file JSON\n  biov-rs storage resolve --store-root DIR --request-file JSON\n  biov-rs prepared fasta --store-root DIR --request-file JSON\n  biov-rs tools setup|inspect|exec ...\n  biov-rs --help\n  biov-rs --version\n\nThe MCP server uses JSON-RPC over stdio. Dataset input paths and storage\nregistration sources are restricted to --data-root; exports are restricted to\n--output-root. Optional --store-root enables durable native snapshots and prepared FASTA indices.\nOne-shot storage and prepared commands read at most 64 KiB of typed JSON and return one JSON\nresult on stdout. Resolution and preparation need only the store, not the original source.\nPrepared FASTA requires an exact versioned RefSeq reference, snapshot ID and\nsource-relative genome_fasta path; it never rewrites native snapshot files.\nBioV native orchestration uses no Python runtime; selected scientific tools may\nuse their own locked runtimes. Help, diagnostics, and errors go to stderr.";
+const HELP: &str = "BioV: native lifecycle, storage and analysis with installed Python capabilities\n\nUsage:\n  biov install [options] <tool>\n  biov list [options]\n  biov uninstall [options] <tool>\n  biov tools inspect|exec ...\n  biov storage register --store-root DIR --source-root DIR --request-file JSON\n  biov storage resolve --store-root DIR --request-file JSON\n  biov prepared fasta --store-root DIR --request-file JSON\n  biov mcp\n  biov mcp-native --data-root DIR --output-root DIR [--store-root DIR]\n  biov python <legacy command> ...\n  biov analyze|inspect-analysis|pixi|exec|run|update ...\n  biov [--config FILE] <Python-backed command> ...\n  biov --help\n  biov --version\n\ninstall, list, uninstall, tools, storage, prepared and mcp-native use Rust.\nThe existing mcp, analyze, inspect-analysis, pixi, exec, run and update\ncommands use the Python interpreter paired with this installed BioV package.\nLegacy setup is available as `biov python setup`.\nUse `<command> --help` for its options. Install BioV with `uv tool install biov`\nto make both runtimes available; native routing does not load Python; GOATOOLS installation invokes uv with the paired interpreter.\n\nBoth MCP routes use JSON-RPC over stdio. Native MCP requires explicit trusted\ndata/output roots and optionally a native snapshot store. Help, diagnostics and\nerrors go to stderr; MCP exclusively owns stdout while serving.";
 
 #[derive(Debug, PartialEq, Eq)]
 enum Command {
@@ -42,7 +43,7 @@ fn parse_args(args: impl IntoIterator<Item = OsString>) -> Result<Command, Strin
     let mut args = args.into_iter();
     let command = args
         .next()
-        .ok_or("missing command; expected mcp, storage or prepared")?;
+        .ok_or("missing command; expected mcp-native, storage or prepared")?;
     if command == "--help" || command == "-h" {
         if args.next().is_some() {
             return Err("unexpected argument after --help".into());
@@ -55,8 +56,11 @@ fn parse_args(args: impl IntoIterator<Item = OsString>) -> Result<Command, Strin
         }
         return Ok(Command::Version);
     }
-    let (mode, allowed): (&str, &[&str]) = if command == "mcp" {
-        ("mcp", &["--data-root", "--output-root", "--store-root"])
+    let (mode, allowed): (&str, &[&str]) = if command == "mcp-native" {
+        (
+            "mcp-native",
+            &["--data-root", "--output-root", "--store-root"],
+        )
     } else if command == "storage" {
         match args.next().as_deref() {
             Some(action) if action == "register" => (
@@ -86,7 +90,7 @@ fn parse_args(args: impl IntoIterator<Item = OsString>) -> Result<Command, Strin
             None => return Err("missing prepared command; expected fasta".into()),
         }
     } else {
-        return Err("unknown command; expected mcp, storage or prepared".into());
+        return Err("unknown command; expected mcp-native, storage or prepared".into());
     };
     let mut options = BTreeMap::new();
     while let Some(arg) = args.next() {
@@ -123,7 +127,7 @@ fn parse_args(args: impl IntoIterator<Item = OsString>) -> Result<Command, Strin
             .ok_or_else(|| format!("missing required {flag}"))
     };
     match mode {
-        "mcp" => Ok(Command::Mcp {
+        "mcp-native" => Ok(Command::Mcp {
             data_root: required("--data-root")?,
             output_root: required("--output-root")?,
             store_root: options.remove("--store-root"),
@@ -147,20 +151,28 @@ fn parse_args(args: impl IntoIterator<Item = OsString>) -> Result<Command, Strin
 
 #[tokio::main(flavor = "current_thread")]
 async fn main() -> ExitCode {
-    let mut raw = std::env::args_os().skip(1);
-    if raw.next().as_deref().is_some_and(|value| value == "tools") {
-        return match tools_cli::run(raw) {
-            Ok(status) => status,
-            Err(error) => {
-                eprintln!("biov-rs: {}", mcp::bounded_text(&error, 2048));
-                ExitCode::from(2)
-            }
-        };
+    let raw: Vec<_> = std::env::args_os().skip(1).collect();
+    let first = raw.first().map(OsString::as_os_str);
+    if first.is_some_and(|value| value == "tools") {
+        return tool_result(tools_cli::run(raw.into_iter().skip(1)));
+    }
+    if first.is_some_and(|value| value == "install" || value == "list" || value == "uninstall") {
+        return tool_result(tools_cli::run(raw));
+    }
+    if first.is_some_and(|value| value == "python") {
+        return tool_result(python_bridge::run(raw.into_iter().skip(1)));
+    }
+    if first.is_some_and(python_bridge::is_python_route) {
+        return tool_result(python_bridge::run(raw));
+    }
+    if raw.is_empty() {
+        eprintln!("{HELP}");
+        return ExitCode::from(2);
     }
     let command = match parse_args(std::env::args_os().skip(1)) {
         Ok(command) => command,
         Err(error) => {
-            eprintln!("biov-rs: {error}\n\n{HELP}");
+            eprintln!("biov: {error}\n\n{HELP}");
             return ExitCode::from(2);
         }
     };
@@ -170,7 +182,7 @@ async fn main() -> ExitCode {
             Ok(())
         }
         Command::Version => {
-            eprintln!("biov-rs {}", env!("CARGO_PKG_VERSION"));
+            eprintln!("biov {}", env!("CARGO_PKG_VERSION"));
             Ok(())
         }
         Command::StorageRegister {
@@ -195,8 +207,18 @@ async fn main() -> ExitCode {
     match result {
         Ok(()) => ExitCode::SUCCESS,
         Err(error) => {
-            eprintln!("biov-rs: {}", mcp::bounded_text(&error, 2048));
+            eprintln!("biov: {}", mcp::bounded_text(&error, 2048));
             ExitCode::FAILURE
+        }
+    }
+}
+
+fn tool_result(result: Result<ExitCode, String>) -> ExitCode {
+    match result {
+        Ok(status) => status,
+        Err(error) => {
+            eprintln!("biov: {}", mcp::bounded_text(&error, 2048));
+            ExitCode::from(2)
         }
     }
 }
@@ -240,7 +262,14 @@ mod tests {
     #[test]
     fn parses_required_roots_in_either_order_and_optional_storage() {
         assert_eq!(
-            args(&["mcp", "--output-root", "results", "--data-root", "input"]).unwrap(),
+            args(&[
+                "mcp-native",
+                "--output-root",
+                "results",
+                "--data-root",
+                "input"
+            ])
+            .unwrap(),
             Command::Mcp {
                 data_root: "input".into(),
                 output_root: "results".into(),
@@ -249,7 +278,7 @@ mod tests {
         );
         assert_eq!(
             args(&[
-                "mcp",
+                "mcp-native",
                 "--store-root",
                 "saved",
                 "--data-root",
@@ -327,13 +356,13 @@ mod tests {
         for invalid in [
             vec![],
             vec!["other"],
-            vec!["mcp"],
-            vec!["mcp", "--unknown"],
-            vec!["mcp", "--data-root"],
-            vec!["mcp", "--data-root", "--output-root", "results"],
-            vec!["mcp", "--data-root", "-h"],
+            vec!["mcp-native"],
+            vec!["mcp-native", "--unknown"],
+            vec!["mcp-native", "--data-root"],
+            vec!["mcp-native", "--data-root", "--output-root", "results"],
+            vec!["mcp-native", "--data-root", "-h"],
             vec![
-                "mcp",
+                "mcp-native",
                 "--data-root",
                 "in",
                 "--data-root",
@@ -341,7 +370,13 @@ mod tests {
                 "--output-root",
                 "out",
             ],
-            vec!["mcp", "--store-root", "saved", "--store-root", "saved"],
+            vec![
+                "mcp-native",
+                "--store-root",
+                "saved",
+                "--store-root",
+                "saved",
+            ],
             vec!["--help", "extra"],
             vec!["--version", "extra"],
             vec!["prepared"],
@@ -412,7 +447,7 @@ mod tests {
     fn exposes_help_and_version_without_roots() {
         for words in [
             &["--help"][..],
-            &["mcp", "--help"],
+            &["mcp-native", "--help"],
             &["storage", "--help"],
             &["storage", "register", "--help"],
             &["storage", "resolve", "--help"],

@@ -217,9 +217,15 @@ An environment is selected by its tool/dependency identity and platform, not the
 analysis directory. Explicit project environments remain supported and visibly
 project-owned; BioV does not silently adopt or delete them.
 
-D7: Preserve exact pins and existing locks; report the actual resolved version and
-source. Reuse a compatible installed environment before rebuilding. An unpinned
-request must have documented installed/cache selection and refresh behavior,
+D7: Preserve requested exact pins and existing workflow locks; use native manager
+inventory to report resolved versions and sources. User-tool installations pin
+primary packages but allow upstream dependency resolution; they do not inherit
+the bundled scientific workflow's full transitive lock. Reinstall/retry follows
+the manager's native behavior rather than promising an unchanged resolved package
+set or a BioV-owned installation transaction. Keep the bundled locked workflow's
+stricter identity, receipt and execution contract separate. Reuse a compatible
+installed environment before rebuilding. An unpinned request must have documented
+installed/cache selection and refresh behavior,
 rather than silently changing versions between tasks. Upgrades are explicit and
 respect requested constraints; failed preparation or upgrade must not replace a
 working installation with a partial one. Removal targets a known BioV-owned
@@ -231,10 +237,16 @@ inputs/outputs have separate retention rules. Removing software or its cache mus
 not delete external data or results. Existing data-cache settings and native
 manager controls remain valid; exact new controls are not yet specified.
 
-D8: Start with a small local lifecycle slice using existing locked Pixi tools and
-one supported platform. Complete cross-task reuse, inventory, explicit update,
-uninstall and safe cache cleanup before adding more management layers. A tool
-needs one verified distribution route: community packages or official prebuilt
+D8: Start with a small local lifecycle slice using existing upstream managers and
+one supported platform. Samtools uses isolated Pixi global install/expose/list/
+uninstall; GOATOOLS uses isolated uv tool install/list/uninstall with the Python
+interpreter paired with the installed BioV package. Delegate environments,
+entrypoints and their native receipts/manifests to these managers. Do not create
+a second installed registry, launcher/runner mechanism, publication journal or
+hash-bound global version map. The independent bundled locked Pixi workflow
+remains available through `tools exec`/`inspect`. Complete cross-task reuse,
+inventory, explicit update, uninstall and safe cache cleanup before adding more
+management layers. A tool needs one verified distribution route: community packages or official prebuilt
 binaries when suitable, a container when appropriate and available, or a pinned
 source build when necessary. These are alternatives, not mandatory backends for
 every tool. Record the route and prerequisites; unsupported platforms or missing
@@ -244,8 +256,9 @@ separate user-controlled action. Prefer namespaced BioV entry points and native
 arguments; never overwrite an unrelated executable or resolve a wrapper back to
 itself. Current `exec`, `setup`, `pixi` and whole-script `run` meanings are the
 starting point; D9 allows explicit interface revisions with migration guidance.
-Final lifecycle command names and optional
-short aliases remain undecided. Keep D2–D4's biological contracts; defer broader
+The implemented local commands are `install`, `list` and `uninstall`; future
+upgrade/cleanup commands and optional short aliases remain undecided. Keep D2–D4's
+biological contracts; defer broader
 platform coverage, automatic backend switching and distributed environment
 management until needed. The focused acceptance cases are in the
 [software guide](docs/guides/environments.md#planned-tool-lifecycle).
@@ -316,7 +329,7 @@ and end-to-end performance; neither Arrow nor Rust implies zero-copy or a speedu
 
 Existing Python usage informs scientific requirements without freezing names,
 signatures or return types. Explicit breaking updates are acceptable. Keep the
-legacy Python `biov mcp` route separate while the new `biov-rs mcp --data-root
+legacy Python `biov mcp` route separate while the new `biov mcp-native --data-root
 DIR --output-root DIR` route is implemented and validated with the official Rust
 MCP SDK (`rmcp`) over stdio. Do not silently reroute the existing entry point or
 claim full Python-server feature parity, Python-free BioV distribution, or
@@ -362,7 +375,13 @@ a custom JSON-RPC implementation is not the product. A tested narrow native
 analytical server does not establish parity with the existing provider,
 identifier or managed-Python-analysis server.
 
-The existing PyO3/maturin package remains available for its implemented bindings.
+The complete Python distribution uses upstream setuptools-rust to build both
+`biov._native` and the single native `biov` executable. It has no Python `biov`
+console-script owner and no separate `biov-rs` executable. Maturin's PyO3 target
+selection does not package the binary alongside this extension; do not hand-edit
+wheel RECORD files or inject binaries with a private packaging backend.
+Existing Python capabilities are explicitly delegated to the installed package's
+paired interpreter. Native routes never start Python.
 Where bindings are shipped, test installed-wheel imports and selected Python/CLI
 contracts; Python 3.12–3.14 is the current acceptance matrix, not a dependency of
 the standalone Rust analytical server. Declare and test any revised Python
@@ -388,7 +407,7 @@ BioV package support. Do not advertise Rust speedups without reproducible
 release-build, representative-data measurements of conversion, memory and runtime.
 
 D12: The implemented analytical slice is a local Rust/Polars dataset workflow
-over `biov-rs mcp --data-root DIR --output-root DIR`, using the official `rmcp`
+over `biov mcp-native --data-root DIR --output-root DIR`, using the official `rmcp`
 stdio server. The initial CSV/query/export scope is validated on Linux x86_64,
 including an installed binary outside the checkout (T63–T65). Paired-export
 reopening is implemented and source-built Linux acceptance covers two real MCP
@@ -610,7 +629,7 @@ T68 separately gates the portable companion bundle with no BioV in the reader.
 ```gherkin
 Feature: Complete local datasets through Rust MCP and Arrow IPC
   Background:
-    Given biov-rs is running as an rmcp stdio server
+    Given biov is running as an rmcp stdio server
     And a data root and a separate output root are configured
 
   Scenario: Filter complete data and independently read back its Arrow export
@@ -1050,9 +1069,9 @@ otherwise. The independent Rust MCP dataset route is specified in D12 and tracke
 in T63–T67; the native dataset guide records its verified scope.
 
 - native sequence tool: `dataset_fasta_windows` with configured native store → D15 exact prepared sequence windows, same-pass whole summary and D12 typed-table query/export/reopen; no Python analysis wrapper
-- native prepared API: `biov_prepared::PreparedStore::new(store_root)` and `prepare_fasta(PrepareFastaRequest)` → D14; CLI `biov-rs prepared fasta --store-root DIR --request-file JSON` and MCP `prepared_fasta` are thin bounded adapters
-- native cmd: `biov-rs storage register --store-root DIR --source-root DIR --request-file JSON` and `biov-rs storage resolve --store-root DIR --request-file JSON` → thin adapters for D13, no downloads
-- native tool: `storage_register` and `storage_resolve` through `biov-rs mcp --data-root DIR --output-root DIR --store-root DIR` → the same bounded offline native-store contracts; `--store-root` is optional for the existing dataset-only route
+- native prepared API: `biov_prepared::PreparedStore::new(store_root)` and `prepare_fasta(PrepareFastaRequest)` → D14; CLI `biov prepared fasta --store-root DIR --request-file JSON` and MCP `prepared_fasta` are thin bounded adapters
+- native cmd: `biov storage register --store-root DIR --source-root DIR --request-file JSON` and `biov storage resolve --store-root DIR --request-file JSON` → thin adapters for D13, no downloads
+- native tool: `storage_register` and `storage_resolve` through `biov mcp-native --data-root DIR --output-root DIR --store-root DIR` → the same bounded offline native-store contracts; `--store-root` is optional for the existing dataset-only route
 - native library: `biov_storage::NativeStore::new(store_root)`, `register(source_root, RegisterRequest)` and `resolve(ResolveRequest)` → source-native immutable copy registration and offline filesystem resolution; D13 defines the bounded provider/validation scope
 - file: `<store-root>/artifacts/<namespace>/<canonical accession>/snapshots/sha256-<digest>/` → relative inventory/receipt/checksums/README and complete unmodified `source/`; no durable index required
 - api: `BioDataFrame.overlap(other, how, seqid_col, start_col, end_col, strand_col)` → selected self rows
@@ -1098,7 +1117,12 @@ in T63–T67; the native dataset guide records its verified scope.
 - cmd: `crisprprimer`, `crisprprimer-docker`, `biov-azimuth` → migrated native Python workflow, existing Docker report bridge, and existing Azimuth backend runner; original scientific settings and scoring behavior retained
 - file: `skills/` → specialized analysis and data-query guidance; no generic agent runtime
 - env: uv + uv.lock → BioV development and Python 3.12/3.13/3.14 compatibility tests; scientific dependencies belong to deployment-selected Pixi environments
-- cmd: `biov-rs tools setup|inspect|exec` → initial local Rust migration for bundled samtools/goatools on Linux x86_64, existing pinned Pixi 0.81.0, immutable content-keyed manifest/lock and successful native setup receipt; `exec --no-install` requires that receipt and a consistent Pixi prefix marker, passes literal native argv/stdio/status, and never installs; default exec performs locked setup or locked manager repair of an absent selected executable if needed; native execution uses validated typed Pixi activation and direct OS argv, including zero arguments; this is not the complete D6–D8 lifecycle, a project-manifest/SSH route or an MCP deployment surface
+- cmd: `biov install [--environment-root DIR] [--pixi FILE] [--uv FILE] samtools|goatools` → Linux x86_64 thin upstream installation: Pixi 0.81.0 global installs Samtools 1.24 from conda-forge/bioconda and exposes its native command; uv tool installs GOATOOLS 1.6.5 plus statsmodels 0.14.6 using the complete BioV wheel's paired installed Python without downloading Python; managers resolve remaining dependencies rather than consume the bundled scientific lock; dedicated-bin PATH instructions are printed, never applied to the parent shell
+- cmd: `biov list [--environment-root DIR] [--pixi FILE] [--uv FILE]` → official human-readable Pixi-global/uv-tool list output under path-labeled sections for existing dedicated roots only, failing on unreadable/non-UTF-8/over-1-MiB manager stdout rather than truncating; no custom JSON schema, parsed uv-text inventory or independent readiness/integrity audit; catalog/cache/locked execution-only environments and ordinary external manager installations are excluded
+- cmd: `biov uninstall [--environment-root DIR] [--pixi FILE] [--uv FILE] samtools|goatools` → delegate removal of the selected owned backend tool environment and exposed commands; retain the other tool, caches, scientific data, outputs and separate locked workflow environments; no general purge/GC interface
+- file: `environment_root/pixi-global/{envs,bin,cache,manifests/pixi-global.toml}` and `environment_root/uv-tools/{tools,bin,cache,python}` → isolated upstream-owned environments/entrypoints/native metadata; Pixi's owned global manifest is explicitly selected without user/XDG fallback; no BioV installed registry/journal, copied runner, custom launcher, bin override or hash-bound global version map; upstream commands survive removal of the management BioV wheel if their environments and GOATOOLS base Python remain available
+- cmd: `biov python COMMAND ...` → explicit compatibility access to existing Python CLI capabilities, including manager-only and broader environment setup; native lifecycle routes remain Rust-owned
+- cmd: `biov tools inspect|exec` → initial local Rust migration for bundled samtools/goatools on Linux x86_64, existing pinned Pixi 0.81.0, immutable content-keyed manifest/lock and successful native setup receipt; `exec --no-install` requires that receipt and a consistent Pixi prefix marker, passes literal native argv/stdio/status, and never installs; default exec performs locked setup or locked manager repair of an absent selected executable if needed; native execution uses validated typed Pixi activation and direct OS argv, including zero arguments; this is not the complete D6–D8 lifecycle, a project-manifest/SSH route or an MCP deployment surface
 - cmd: `biov exec [--no-install] [--cwd DIR] [SOURCE:]NAME [ARGS]...` → bare NAME and conda:NAME select a declared environment's same-name Pixi task or executable, otherwise temporary Pixi execution; pypi uses uv tool run, npm uses npx; arguments pass through without requiring `--`
 - config: `--config` or `BIOV_CONFIG` selects `config.toml` in the user configuration directory → application settings; environment variables override TOML; execution host uses native SSH configuration
 - env: `BIOV_EXECUTION_HOST`, `BIOV_SSH_CONFIG`, `BIOV_EXECUTION_CWD` → private SSH destination/configuration and execution paths; no public remote subcommand
@@ -1106,7 +1130,7 @@ in T63–T67; the native dataset guide records its verified scope.
 - env: `BIOV_ENVIRONMENT_ROOT` → managed Pixi and scientific environments under the platform user data directory; used only when no configured or PATH Pixi matches the pinned version
 - env: `BIOV_PIXI_BIN` → explicit Pixi executable; otherwise a matching `pixi` on PATH, otherwise the managed copy
 - env: `BIOV_MAX_FILE_BYTES` → optional ceiling for each downloaded or decompressed provider file
-- cmd: `biov setup [ENVIRONMENT | --all] [--archive FILE] [--update-lock]` → make the pinned Pixi available (reusing a compatible one) and install a declared Pixi environment from the bundled manifest and lock
+- cmd: `biov python setup [ENVIRONMENT | --all] [--archive FILE] [--update-lock]` → make the pinned Pixi available (reusing a compatible one) and install a declared Pixi environment from the bundled manifest and lock
 - cmd: `biov pixi [ARGS]...` → run the resolved Pixi manager with native arguments and its exit status
 - cmd: `biov run [OPTIONS] SCRIPT [ARGS]...` → run complete Python script locally or submit it to LSF
 - env: `BIOV_LSF_PYTHON` ? Python executable visible from LSF execution hosts; default = submitting interpreter
@@ -1204,8 +1228,8 @@ V63: commands from every source use execution-host paths and inherit caller cach
 V64: runtime/environment configuration belongs to deployment; skill instructions expose scientific programs and native arguments; MCP adds no deployment-management tools; dependency checks do not imply scientific validation
 V65: SSH is internal to exec and delegates authentication/configuration/host-key checking to OpenSSH; argv is POSIX-shell-quoted; only the coordinate, native arguments, optional cwd and no-install selection are forwarded; remote manager/cache settings belong to the remote configuration; no automatic file transfer or public remote subcommand
 V66: setup stays explicit and local to the execution host; a configured, PATH or managed Pixi is reused only when its reported version matches the pinned release, and only a downloaded archive must match platform SHA-256 and retain the Pixi license; scientific dependencies and versions belong to src/biov/assets/environments/pyproject.toml and its adjacent pixi.lock, shipped in the wheel and copied into writable content-addressed workspaces when no project is selected; setup uses install --locked and rejects missing/stale locks; exec provisions declared environments from that same lock on demand and never rewrites it, while temporary-source execution resolves packages through its native manager without that project lock; `--no-install` skips provisioning for declared environments and is rejected for temporary sources; shipped channels exclude Anaconda defaults; machine settings remain in application TOML and environment/package declarations use native manager files; preparation tasks an environment declares for source-only tools run on setup and once on demand after installation; initialization requires no agent or LLM
-V67: the sdist contains the Python package and required resources, build metadata and licenses, Python tests, documentation and its build files; source selection is declared in pyproject.toml and CI checks the selected project-file set exactly; skills, plugin manifests and plugin-only tests remain in the Git distribution; an unpacked sdist can build the wheel, run its Python tests and build the documentation
-V68: declared environment entry points belong to native Pixi same-name tasks when the executable name differs; shipped entry tasks preserve the caller directory through INIT_CWD and locate prepared sources through PIXI_PROJECT_ROOT; library entries execute Python scripts, not invented library CLIs; a missing same-name task and executable produces an actionable error naming the environment and manifest, while an existing entry's own exit 127 is preserved; --no-install on an uninitialized bundled workspace reports biov setup NAME without creating it; tasks and executable discovery use Pixi's resolved task and activation data
+V67: the sdist contains the Python package and required resources, build metadata and licenses, Python tests, documentation and its build files; source selection is declared in MANIFEST.in and pyproject.toml and CI checks the selected project-file set exactly; skills, plugin manifests and plugin-only tests remain in the Git distribution; an unpacked sdist can build the wheel, run its Python tests and build the documentation
+V68: declared environment entry points belong to native Pixi same-name tasks when the executable name differs; shipped entry tasks preserve the caller directory through INIT_CWD and locate prepared sources through PIXI_PROJECT_ROOT; library entries execute Python scripts, not invented library CLIs; a missing same-name task and executable produces an actionable error naming the environment and manifest, while an existing entry's own exit 127 is preserved; --no-install on an uninitialized bundled workspace reports biov python setup NAME without creating it; tasks and executable discovery use Pixi's resolved task and activation data
 V69: managed analysis executes an ordinary Python script synchronously through existing `biov exec` in a declared local locked Pixi environment whose entry accepts scripts; configured SSH managed execution fails explicitly; scientific algorithms and task-specific orchestration remain in caller/example scripts
 V70: every managed run has a unique private persistent directory with exact code, parameters, input copies, complete outputs and logs; inputs are copied with change checks, made read-only, hashed and checked after execution; prior-result reuse verifies the completed record and output identity; missing/modified results fail without recomputation, and failed runs never publish partial files as completed outputs
 V71: the driver alone writes its atomic run record and the worker separately records confirmed scientific-process facts; launch intent precedes execution, launcher creation is not scientific startup, and unconfirmed post-launch failures or nonterminal records queried after restart report unknown without PID-based guesses or resubmission; program completion, declared checks and output validation remain distinct; second-step failure does not alter the first run's saved results
@@ -1222,6 +1246,8 @@ V77: every cache/data design obeys D0; copied/moved bundles must be discoverable
 V78: native copy-registration preserves complete source bytes/layouts and original ownership, publishes only validated immutable snapshots without replacement, and resolves offline through portable filesystem records; exact biological references, snapshot content identity, declared scope and representation availability remain separate; full checksums do not authenticate provenance, and stream-copy storage does not expand D12 analytical limits
 
 V79: prepared reference indices preserve native bytes, use established format implementations, distinguish recipe identity from output hashes, verify reuse and no-replace publication, and declare relative dependency closure for independent moved-bundle readers; incomplete staging, corrupt input/output and unsupported FASTA never become ready artifacts
+
+V80: user-tool lifecycle adapters use only explicit BioV-root-owned upstream state: Pixi 0.81.0 global Samtools 1.24 and uv tool GOATOOLS 1.6.5 plus statsmodels 0.14.6 with paired installed Python; native manifests/receipts and human-readable list output remain authoritative; no custom install registry, runner, journal, JSON list, bin override or full transitive lock is introduced; no user-global manager setting or shell profile is changed; removal targets only the selected backend tool environment/commands and preserves caches, scientific data/results and separate locked workflows; base Python availability is required after management-wheel removal
 
 ## §T TASKS
 id|status|task|cites
@@ -1281,16 +1307,16 @@ T54|x|migrate existing GEEPilot deterministic CRISPR computations, Docker report
 
 T55|x|migrate shared GEEPilot BWA-to-BAM execution into a public BioV API, remove the external PATH requirement, and test native argv, sort/index results and failure handling with SAM fixtures|I.api,V62,V65,V74
 
-T56|planned|fix the first local tool-lifecycle command surface and acceptance fixtures against D6–D8; distinguish currently supported behavior from missing inventory/update/removal/cleanup capabilities before implementation|D6,D7,D8
-T57|planned|implement and validate the bounded lifecycle slice after T56, reusing existing manifests, locks and managers; preserve biological and current execution contracts|D2,D3,D4,D6,D7,D8
+T56|partial|single native biov entry and thin isolated upstream install/list/uninstall contract defined for Samtools/Pixi-global and GOATOOLS/uv-tool on Linux x86_64; preserve setuptools-rust mixed packaging, paired-interpreter Python bridge and separate bundled locked scientific workflows; explicit upgrades and general cache cleanup remain gaps|D6,D7,D8,V80
+T57|partial|replace custom installed records/launchers/retained runners/journals with isolated native Pixi-global and uv-tool adapters, primary-version pins, official raw human inventory and backend-selected removal preserving scientific data and locked workspaces; validate real managers/tools, isolated roots, failures/collisions, management-package uninstall survival with retained base Python, package upgrade and wheel/sdist installation before claiming completion; no fully locked transitive global-install or general upgrade/cleanup promise|D2,D3,D4,D6,D7,D8,V80
 
 T58|partial|sequence normalization/reverse-complement public types, errors, breaking Unicode correction and full-output independent fixtures fixed in docs/guides/sequence-contract.md; inventory remaining scientific and operational contracts per slice, without requiring a full parallel Python analysis API|D9,D10,V75
-T59|partial|core/PyO3/development binary workspace, native normalization/reverse complement and maturin packaging implemented; installed Linux wheels and unpacked source builds validated; portable Linux/macOS release-target validation pending|D9,D10,D11,V10,V11,V12,V67,V75,V76
+T59|partial|core/PyO3/development binary workspace, native normalization/reverse complement implemented; original extension wheels/source builds validated; migration to setuptools-rust mixed executable/extension packaging requires fresh wheel/sdist acceptance; portable Linux/macOS release-target validation pending|D9,D10,D11,V10,V11,V12,V67,V75,V76
 T60|partial|native validated sequence lengths and weighted IUPAC GC implemented with independent base-set fixtures; move remaining sequence algorithms, interval operations and format parsing to Rust in contract-sized slices; use Rust-side Polars for analytical tables, evaluate scientific library candidates, measure interoperability costs, document schemas and metadata handling and independently verify any owned algorithms|D9,D10,D12,V1,V2,V3,V4,V5,V6,V7,V8,V12,V13,V75
 T61|partial|curated offline GCF/UniProt identifiers, local dataset provenance and the bounded native samtools/goatools locked setup-to-exec bridge are implemented; move remaining offline identifier parsing/validation, provider resolution/data provenance, cache, configuration, tool lifecycle/execution and managed results into their Rust responsibility boundaries; instantiate crates only when actual responsibilities justify them; retain external tool/native lock ownership and all failure/receipt/result contracts; implement T56–T57 lifecycle scope there|D2,D3,D4,D6,D7,D8,D9,D10,V75
 T62|partial|the local native dataset MCP slice and source-installed binary are validated; expand native CLI/MCP scope after selected operation and real-client acceptance; keep legacy Python and native Rust routes explicit until any switch is independently justified; publish validated binaries and optional wheels/source builds, retiring superseded Python logic/dependencies when no retained function needs them|D9,D10,D11,D12,V20,V64,V67,V75,V76
 T63|x|fix the first local Rust/Polars MCP dataset contract, string-safe defaults and explicit schemas, supported operations, handle lifetime, path boundaries and resource limits; distinguish unknown biological metadata and session handles from identifiers; record complete-data/export/chunk-retrieval/readback acceptance and the curated offline identifier subset|D2,D3,D4,D9,D10,D12,V75
-T64|x|implement official rmcp stdio behind biov-rs mcp with configured data/output roots, local CSV open/schema/row count/bounded preview, complete-data filter/sort/select into derived datasets, Arrow IPC plus record export, explicit bounded retrieval and dataset release; keep the existing Python MCP route separate|D9,D11,D12,V20,V75
+T64|x|implement official rmcp stdio behind biov mcp-native with configured data/output roots, local CSV open/schema/row count/bounded preview, complete-data filter/sort/select into derived datasets, Arrow IPC plus record export, explicit bounded retrieval and dataset release; keep the existing Python MCP route separate|D9,D11,D12,V20,V75
 T65|x|validate the new native workflow through an MCP client and independent Arrow IPC readback, including records beyond previews, identifier/numeric-text fidelity, explicit numeric schemas, duplicates/nulls/order, digest-verified chunk reconstruction, unknown metadata, handle expiry, errors/limits/path confinement and clean stdio; update the actual supported scope only after checks pass|D2,D3,D4,D10,D11,D12,V75,V76
 T66|x|implement dataset_reopen for a previously exported root-confined JSON record and same-directory IPC pair, validating record version/format, bounded same-snapshot bytes and digest, schema/actual types, row count and metadata before issuing a fresh session handle; expose and persist reopening verification context without authenticating recorded provenance or biological metadata|D2,D3,D4,D9,D12,V75
 T67|x|validate complete cross-process reuse in source-built Linux through real MCP processes A and B: typed CSV open/filter/sort/select/export/EOF, reopen/preview/query/re-export and independent full-table/digest readback; cover types/nulls/order/duplicates, expired handles, missing/tampered/mismatched pairs, limits and path escapes with no fallback; 29 biov-data tests and all nine real MCP subprocess cases pass|D2,D3,D4,D10,D11,D12,V75,V76

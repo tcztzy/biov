@@ -26,17 +26,22 @@ coordinates, units and complete data.
 - Use the migrated `crisprprimer`, `crisprprimer-docker`, `biov-azimuth` and
   paired-read alignment interfaces
 
-A unified installed-tool inventory, upgrades, uninstall and safe cache cleanup
-are [planned](guides/environments.md#planned-tool-lifecycle). They are not
-implied by the current execution commands. In particular, `biov update` refreshes
-the identifier registry, not installed tools.
+`biov install`, `biov list` and `biov uninstall` are thin native adapters to
+Pixi global for Samtools and uv tool for GOATOOLS on Linux x86_64. Their upstream
+commands and environments live in dedicated directories under BioV's environment
+root, separate from bundled locked scientific workflows. Listing shows the
+managers' human-readable inventory in those roots. Upgrades and general cache
+cleanup remain planned. `biov update` refreshes the identifier registry, not
+installed tools.
 
 BioV works without an agent or model. The caller chooses the scientific question,
 method and interpretation; BioV handles repeatable data and execution rules.
 
 ## Install and run
 
-The current package requires Python 3.12 or newer. From this checkout:
+The current package requires Python 3.12 or newer. Source builds also require
+Rust 1.89.0 (pinned in `rust-toolchain.toml`) and a C linker. Install Rust through
+[the official rustup installer](https://rustup.rs/), then from this checkout:
 
 ```sh
 uv sync --locked
@@ -51,21 +56,42 @@ uv tool install .
 biov --help
 ```
 
-Set up the pinned Pixi manager and a declared scientific environment, then run
-its native entry point:
+The installed `biov` executable is Rust-owned. The wheel includes the existing
+Python modules and native extension; Python-backed commands use the interpreter
+paired with that installation. There is no separate `biov-rs` command.
+
+With existing Pixi 0.81.0 and uv, install a supported scientific tool and expose
+its upstream commands:
 
 ```sh
-biov setup
-biov setup samtools
-biov exec samtools --version
+biov install samtools
+biov install goatools
+biov list
+samtools --version
+goatools find_enrichment --help
+biov uninstall goatools
 ```
 
-Declared environments install from their locks and can also be prepared on demand
-by `biov exec`. Bundled scientific environments currently target Linux x86_64;
-Pixi manager support on another platform does not establish support for every
-scientific tool. BioV's wheel does not contain Pixi or the scientific packages.
-See [scientific environments](guides/environments.md) for platform support,
-project manifests, offline manager archives and prerequisites.
+BioV prints PATH instructions for `environment_root/pixi-global/bin` and
+`environment_root/uv-tools/bin` when needed. Apply them in your shell; BioV does
+not edit startup files or user-global manager settings. Samtools is pinned to
+1.24; GOATOOLS is pinned to 1.6.5 with statsmodels 0.14.6, using the Python
+interpreter paired with the installed BioV package. The managers resolve remaining
+dependencies; these installations do not consume the bundled scientific lock.
+
+Upstream commands and environments remain usable after `uv tool uninstall biov`;
+the GOATOOLS environment still requires its base Python installation to remain.
+`biov uninstall NAME` asks the backend to remove that tool's environment and
+exposed commands. Scientific data, saved outputs, caches and separate locked
+workflow environments are unaffected. See the [scientific environments guide](guides/environments.md)
+for root selection, manager prerequisites and limits.
+
+Bundled scientific environments currently target Linux x86_64. BioV's wheel
+contains neither Pixi nor scientific packages. Existing manager bootstrap and
+broader environment provisioning remain available explicitly through
+`biov python setup`, including offline archives and project manifests. This
+compatibility route does not populate the separate Pixi global or uv tool
+inventory. See the scientific environments guide for prerequisites and scope.
 
 `biov exec [SOURCE:]NAME ARGS...` supports `conda:`, `pypi:` and `npm:` sources.
 A bare name selects a declared Pixi environment if present, otherwise a temporary
@@ -149,7 +175,7 @@ reusable computation stays in BioV or established scientific tools.
 
 BioV is moving its main logic into reusable Rust libraries. The implemented
 sequence slice provides normalization, reverse complements, lengths and weighted
-IUPAC GC through Rust with a small PyO3 binding. The native `biov-rs` MCP route
+IUPAC GC through Rust with a small PyO3 binding. The native `biov` MCP route
 already executes local typed-table queries in Rust Polars, exports portable Arrow
 bundles, and reopens saved results after restart. See the
 [native dataset guide](guides/rust-datasets.md) for its tested limits and interfaces.
@@ -180,9 +206,10 @@ uv build
 ```
 
 The current source distribution includes package sources, resources, tests and
-documentation, including the Rust workspace and lockfile. Maturin-built native
-Python wheels and unpacked source builds are tested on Linux; the native MCP
-binary is also installed and tested from source. Portable prebuilt binary and
+documentation, including the Rust workspace and lockfile. Upstream
+setuptools-rust builds the native executable and Python extension together.
+Wheel installation and unpacked source builds have dedicated acceptance checks;
+the native MCP binary is also installed and tested from source. Portable prebuilt binary and
 cross-platform release gates remain pending. Plugin files are distributed through
 Git. Existing score formulas and models are not
 biologically validated merely by migration; see the

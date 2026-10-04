@@ -21,6 +21,8 @@ def main(filename: str) -> None:
             "uv.lock",
             "rust-toolchain.toml",
             "pyproject.toml",
+            "MANIFEST.in",
+            "setup.cfg",
             "LICENSE",
             "README.md",
             "SPEC.md",
@@ -28,6 +30,10 @@ def main(filename: str) -> None:
             "src/biov/py.typed",
             "crates/biov-core/src/sequence.rs",
             "crates/biov-python/src/lib.rs",
+            "crates/biov-cli/src/main.rs",
+            "crates/biov-cli/src/python_bridge.rs",
+            "crates/biov-tools/src/installed.rs",
+            "src/biov/_bridge.py",
             "crates/biov-core/src/bin/biov-core.rs",
             "tests/test_native_sequence.py",
             "tests/test_native_metrics.py",
@@ -45,6 +51,8 @@ def main(filename: str) -> None:
             "SPEC.md",
             "mkdocs.yml",
             "pyproject.toml",
+            "MANIFEST.in",
+            "setup.cfg",
             "rust-toolchain.toml",
         }
         for directory in (
@@ -63,9 +71,22 @@ def main(filename: str) -> None:
                 and path.suffix not in {".so", ".pyc", ".whl"}
             )
         selected.discard("tests/test_plugin_distribution.py")
-        assert paths - {"PKG-INFO"} == selected, (
+        # setuptools generates exactly these metadata files; no arbitrary
+        # egg-info subtree or other source omissions are silently accepted.
+        generated = {"PKG-INFO"} | {
+            f"src/biov.egg-info/{name}"
+            for name in (
+                "PKG-INFO",
+                "SOURCES.txt",
+                "dependency_links.txt",
+                "entry_points.txt",
+                "requires.txt",
+                "top_level.txt",
+            )
+        }
+        assert paths - generated == selected, (
             f"sdist mismatch: missing={sorted(selected - paths)}, "
-            f"unexpected={sorted(paths - selected - {'PKG-INFO'})}"
+            f"unexpected={sorted(paths - selected - generated)}"
         )
         workstation = re.compile(rb"/(?:Users|Volumes)/")
         for member in members:

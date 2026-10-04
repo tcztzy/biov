@@ -15,8 +15,12 @@ of existing RefSeq packages and explicitly declared PDB representations, with
 offline filesystem discovery. The [prepared RefSeq FASTA](prepared-fasta.md) extension adds conventional FAI/TSV indices (D14/T72); its bounded `dataset_fasta_windows` tool connects exact prepared sequence access to Rust Polars tables (D15/T73). Canonical GC excludes ambiguity and is null without canonical bases; weighted GC retains the existing core IUPAC policy with every base in its denominator. Other providers and generalized prepared transforms remain separate future work.
 A [native locked-tool bridge](environments.md#native-rust-locked-tool-migration)
 now delegates bundled Samtools/GOATOOLS setup and literal local execution to pinned
-Pixi, with recorded setup inspection and cross-task reuse. It does not complete
-installed inventory, upgrades, removal or cache cleanup.
+Pixi, with recorded setup inspection and cross-task reuse. The bounded native
+install/list/uninstall layer delegates Samtools to isolated Pixi global and
+GOATOOLS to isolated uv tool. The managers own entrypoints, inventory and removal
+of selected user-tool environments; scientific data and separate locked workflows
+remain untouched. These installations pin primary packages and use upstream
+transitive resolution. Upgrades and general cache cleanup remain unimplemented.
 The rest of the rewrite remains planned; pandas, Biopython and RuRanges'
 Rust-backed interval kernels still support unmigrated features.
 
@@ -293,7 +297,7 @@ this precise physical encoding; this is not a general Arrow-import rewrite or
 an increase to the 64 MiB retained-data budget. See the [dataset contract](rust-datasets.md)
 for exact scope, limits and the separate acceptance status.
 
-The new `biov-rs mcp --data-root DIR --output-root DIR` is independently tested
+The new `biov mcp-native --data-root DIR --output-root DIR` is independently tested
 through the official Rust MCP SDK. The existing Python `biov mcp` retains its
 separate identifier/provider/managed-analysis surface; the native slice does not
 claim parity or silently replace it. Python analysis scripts and external
@@ -306,7 +310,7 @@ Polars 0.51.0 and rmcp 0.6.0 are pinned and tested for the local-table slice.
 Other entries below remain candidates or retained binding infrastructure; none
 is a performance claim:
 
-- [PyO3](https://pyo3.rs/) and [maturin](https://www.maturin.rs/): native Python
+- [PyO3](https://pyo3.rs/) and [setuptools-rust](https://setuptools-rust.readthedocs.io/en/latest/): native Python
   extension and mixed-package distribution; test binding lifetimes, exception
   translation and cancellation, and release the interpreter only for safe
   Rust-only work
@@ -390,23 +394,40 @@ specified Rust toolchain, linker and system dependencies. The sdist must contain
 all Cargo/Python sources, lock/build metadata, resources, licenses, tests and docs;
 build and test it after unpacking. Evaluate abi3 against real dependencies rather
 than assume it covers every interpreter/ABI. Standalone CLI archives need separate
-target tests and checksums. See [maturin distribution](https://www.maturin.rs/distribution.html).
+target tests and checksums. See [setuptools-rust packaging](https://setuptools-rust.readthedocs.io/en/latest/).
 
+
+## Unified command packaging
+
+The complete distribution builds the PyO3 extension and a single Rust `biov`
+executable with upstream setuptools-rust. Python console scripts do not also
+claim `biov`. Native help, lifecycle, storage, prepared data and `mcp-native`
+routes work without starting Python. Existing Python-backed commands retain
+paired-interpreter dispatch, including bare `biov mcp`; no ambient PATH Python
+is selected. `biov python setup` preserves broader manager/environment setup
+while `biov install` owns the bounded explicit-install contract.
+
+Installing a standalone Cargo binary supplies native capabilities, including
+Samtools installation. Use the complete wheel for existing Python-backed routes
+and GOATOOLS installation, which requires its paired Python interpreter. The new mixed distribution
+must pass wheel installation, unpacked-sdist rebuild, existing extension imports,
+Python bridge execution and isolated uv tool upgrade checks. Earlier extension-only
+wheel evidence is not evidence for this changed packaging path.
 
 ## Source builds and native validation
 
 The Cargo workspace contains eight members. The sequence pair is `biov-core`
 (library and development `biov-core` binary) and `biov-python` (PyO3 extension).
 The native dataset path adds `biov-identifiers` (offline biological identifiers),
-`biov-data` (Polars datasets and provenance) and `biov-cli` (the `biov-rs` MCP
+`biov-data` (Polars datasets and provenance) and `biov-cli` (the `biov` MCP
 binary). `biov-storage` owns local immutable native snapshots and offline
 resolution without Polars or transport dependencies. `biov-prepared` consumes
 verified native snapshots to produce conventional FASTA indices and portable
 prepared-view provenance through a pinned upstream format library. `biov-tools`
-owns the bounded native locked Pixi setup/execution bridge, independent of
-Polars and transport. Rust 1.89.0 is both the pinned build toolchain and declared MSRV. PyO3 is pinned to 0.26.0; the committed Cargo
-lockfile controls its transitive dependencies. Maturin 1.15.0 is the pinned PEP 517 build
-backend. The Python 3.12 stable ABI is selected for this small string/list-only
+owns the bounded native locked Pixi setup/execution bridge and thin isolated
+Pixi-global/uv-tool lifecycle adapters, independent of Polars and transport. Rust 1.89.0 is both the pinned build toolchain and declared MSRV. PyO3 is pinned to 0.26.0; the committed Cargo
+lockfile controls its transitive dependencies. The PEP 517 backend is `setuptools.build_meta`, with
+setuptools-rust 1.13.0 pinned for the extension and executable builds. The Python 3.12 stable ABI is selected for this small string/list-only
 boundary; no NumPy ABI or interpreter objects cross detached Rust computation.
 CPython 3.12–3.14 are the acceptance matrix. This does not claim free-threaded
 Python or alternate-interpreter support.
@@ -424,9 +445,8 @@ uv build --wheel
 The sdist includes both Cargo.lock and uv.lock for reproducible reference tests.
 The same wheel command works from either a checkout or an unpacked sdist; install
 the resulting wheel with `uv pip install <wheel>`. To create a new sdist as well
-as a wheel, run `uv build` from a Git checkout with tracked sources. The configured
-Git sdist generator requires that checkout, so do not use plain `uv build` to
-rebuild an unpacked sdist.
+as a wheel, run `uv build`. Upstream setuptools uses the declared source manifest
+and does not require Git or a checkout; an unpacked sdist can build both artifacts.
 
 `scripts/check_sdist.py dist/biov-*.tar.gz` checks exact parity with the selected
 source paths in the current build checkout, as well as required files and package
