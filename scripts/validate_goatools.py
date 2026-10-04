@@ -1,7 +1,9 @@
-"""Run the pinned upstream CLI on local synthetic inputs and check its full TSV.
+"""Retain full upstream TSV and check its term set, count ratios, and p-values.
 
 Run after ``biov setup goatools`` with the same environment configuration.
 No downloads, ontology updates, gene-ID inference, or BioV statistics are used.
+The output validation record checks selected results; installation and version
+evidence must accompany it to establish runtime identity.
 """
 
 import csv
@@ -79,6 +81,8 @@ def main() -> None:
     metadata = {
         "command": command,
         "exitCode": result.returncode,
+        "verificationScope": "GO term set, study/population count ratios, selected p-values",
+        "runtimeIdentityEvidence": "Requires accompanying installation and version evidence",
         "inputSha256": {
             p.name: hashlib.sha256(p.read_bytes()).hexdigest()
             for p in sorted(fixture.iterdir())
@@ -96,6 +100,8 @@ def main() -> None:
             "population_n": 10,
             "study_n": 4,
             "tested_terms": 3,
+            "hypotheses": "Three BP terms including the propagated root",
+            "output_filter": "pval is applied after multiple-testing correction",
         },
     }
     (output / "validation.json").write_text(json.dumps(metadata, indent=2) + "\n")
@@ -106,7 +112,10 @@ def main() -> None:
         if fieldnames is None:
             raise ValueError("GOATOOLS validation failed: Missing TSV header")
         reader.fieldnames = [name.removeprefix("# ") for name in fieldnames]
-        records = {row["GO"]: row for row in reader}
+        records = {}
+        for row in reader:
+            require(row["GO"] not in records, f"Duplicate GO row: {row['GO']}")
+            records[row["GO"]] = row
     require(set(records) == {"GO:0008150", "GO:9000001", "GO:9000002"}, records)
     expected = {
         "GO:0008150": ((4, 4), (10, 10), Fraction(1)),
@@ -137,7 +146,7 @@ def main() -> None:
     ).hexdigest()
     (output / "validation.json").write_text(json.dumps(metadata, indent=2) + "\n")
     sys.stdout.write(
-        "Verified all three terms, counts, Fisher p-values, Bonferroni, and BH\n"
+        "Verified all three terms, count ratios, Fisher p-values, Bonferroni, and BH\n"
     )
 
 

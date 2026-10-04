@@ -372,6 +372,7 @@ biov exec --no-install goatools find_enrichment study.txt population.txt annotat
   --method=bonferroni,fdr_bh --pval=1 --pvalcalc=fisher_scipy_stats --outfile=results.tsv
 ```
 
+`--pval` is an output filter applied after multiple-testing correction;
 `--pval=1` retains all tested results, including non-significant terms. Default
 GOATOOLS `is_a` count propagation is enabled. Choose these settings for the
 scientific question rather than copying defaults blindly. BioV does not infer
@@ -386,8 +387,13 @@ python scripts/validate_goatools.py ./goatools-validation
 
 It uses only `tests/fixtures/goatools` inputs, runs the upstream Python CLI, retains its
 full TSV/stdout/stderr and settings with input/output SHA-256 values, and checks
-all counts plus Fisher, Bonferroni and BH values by independent exact integer
-arithmetic. A clean cloud Linux-64 manager bootstrap, locked install, and this
+the term set, study/population count ratios, and Fisher, Bonferroni and BH
+values by independent exact integer arithmetic. The synthetic case tests three
+BP hypotheses, including the propagated root, before filtering output.
+`validation.json` verifies these selected outputs; it must be accompanied by
+installation and version evidence to establish runtime identity. It is not
+self-contained proof of which runtime executed the analysis.
+A clean cloud Linux-64 manager bootstrap, locked install, and this
 case passed with GOATOOLS 1.6.5, SciPy 1.18.1 and statsmodels 0.14.6.
 This bounded fit case does not establish large-GO-database performance,
 annotation/cache policy, support for other platforms, or biological validity.
