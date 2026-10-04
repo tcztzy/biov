@@ -9,7 +9,7 @@ fn native_cli_setup_inspection_literal_argv_and_status() {
     let pixi = support::manager(dir.path());
     let root = dir.path().join("environments");
     let run = |words: &[&str]| {
-        Command::new(env!("CARGO_BIN_EXE_biov-rs"))
+        Command::new(env!("CARGO_BIN_EXE_biov"))
             .args(words)
             .env("BIOV_ENVIRONMENT_ROOT", &root)
             .env("BIOV_PIXI_BIN", &pixi)
@@ -88,14 +88,14 @@ fn parser_errors_and_help_have_no_execution_side_effects() {
         vec!["tools", "exec", "--no-install", "--no-install", "samtools"],
         vec!["tools", "setup", "goatools", "--help"],
     ] {
-        let output = Command::new(env!("CARGO_BIN_EXE_biov-rs"))
+        let output = Command::new(env!("CARGO_BIN_EXE_biov"))
             .args(args)
             .output()
             .unwrap();
         assert_eq!(output.status.code(), Some(2));
         assert!(output.stdout.is_empty());
     }
-    let output = Command::new(env!("CARGO_BIN_EXE_biov-rs"))
+    let output = Command::new(env!("CARGO_BIN_EXE_biov"))
         .args(["tools", "--help"])
         .output()
         .unwrap();
@@ -135,14 +135,22 @@ fn direct_wrapper_interrupt_forwards_reaps_and_retains_workspace_lock() {
         let dir = tempfile::tempdir().unwrap();
         let pixi = support::manager(dir.path());
         let root = dir.path().join("environments");
-        let output = Command::new(env!("CARGO_BIN_EXE_biov-rs"))
-            .args(["tools", "setup", "samtools"])
+        let output = Command::new(env!("CARGO_BIN_EXE_biov"))
+            .args(["tools", "exec", "samtools"])
             .env("BIOV_ENVIRONMENT_ROOT", &root)
             .env("BIOV_PIXI_BIN", &pixi)
             .output()
             .unwrap();
-        assert!(output.status.success());
-        let receipt: serde_json::Value = serde_json::from_slice(&output.stderr).unwrap();
+        assert_eq!(output.status.code(), Some(37));
+        let inspected = Command::new(env!("CARGO_BIN_EXE_biov"))
+            .args(["tools", "inspect", "samtools"])
+            .env("BIOV_ENVIRONMENT_ROOT", &root)
+            .env("BIOV_PIXI_BIN", &pixi)
+            .output()
+            .unwrap();
+        let receipt: serde_json::Value =
+            serde_json::from_slice::<serde_json::Value>(&inspected.stdout).unwrap()["receipt"]
+                .clone();
         let executable =
             std::path::Path::new(receipt["prefix"].as_str().unwrap()).join("bin/samtools");
         fs::write(&executable, r#"#!/usr/bin/env python3
@@ -158,12 +166,13 @@ for number in (signal.SIGINT, signal.SIGTERM, signal.SIGHUP):
     signal.signal(number, interrupted)
 while not (home / 'descendant-ready').exists():
     time.sleep(0.005)
-(home / 'pids.json').write_text(json.dumps([os.getpid(), child.pid]))
+(home / 'pids.pending').write_text(json.dumps([os.getpid(), child.pid]))
+(home / 'pids.pending').replace(home / 'pids.json')
 while True:
     time.sleep(1)
 "#).unwrap();
         fs::set_permissions(&executable, fs::Permissions::from_mode(0o755)).unwrap();
-        let child = Command::new(env!("CARGO_BIN_EXE_biov-rs"))
+        let child = Command::new(env!("CARGO_BIN_EXE_biov"))
             .args([
                 "tools",
                 "exec",
@@ -247,7 +256,8 @@ import fcntl, json, os, pathlib, pty, signal, subprocess, sys, termios, time
 binary, home, manager = sys.argv[1:]
 home = pathlib.Path(home)
 env = dict(os.environ, BIOV_ENVIRONMENT_ROOT=str(home / 'envs'), BIOV_PIXI_BIN=manager)
-receipt = json.loads(subprocess.run([binary, 'tools', 'setup', 'samtools'], env=env, capture_output=True, check=True).stderr)
+subprocess.run([binary, 'tools', 'exec', 'samtools'], env=env, capture_output=True)
+receipt = json.loads(subprocess.run([binary, 'tools', 'inspect', 'samtools'], env=env, capture_output=True, check=True).stdout)['receipt']
 native = pathlib.Path(receipt['prefix']) / 'bin/samtools'
 native.write_text('''#!/usr/bin/env python3
 import json, os, pathlib, signal, sys, time
@@ -259,7 +269,8 @@ def interrupted(number, frame):
     (home / 'count').write_text(str(count))
 signal.signal(signal.SIGINT, interrupted)
 line = sys.stdin.readline()
-(home / 'ready').write_text(json.dumps([os.getpid(), os.getpgrp(), line]))
+(home / 'ready.pending').write_text(json.dumps([os.getpid(), os.getpgrp(), line]))
+(home / 'ready.pending').replace(home / 'ready')
 while count == 0:
     time.sleep(.005)
 time.sleep(.2)
@@ -299,7 +310,7 @@ for delivery in ('direct', 'terminal'):
         if native_pid is not None and pathlib.Path(f'/proc/{native_pid}').exists():
             os.kill(native_pid, signal.SIGKILL)
         os.close(master)
-"#, env!("CARGO_BIN_EXE_biov-rs"), dir.path().to_str().unwrap(), pixi.to_str().unwrap()])
+"#, env!("CARGO_BIN_EXE_biov"), dir.path().to_str().unwrap(), pixi.to_str().unwrap()])
         .output().unwrap();
     assert!(
         output.status.success(),

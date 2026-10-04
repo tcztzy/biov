@@ -1,0 +1,26 @@
+# A source install builds both the PyO3 extension and the native command from
+# the complete locked Cargo workspace, including test fixtures and crate docs.
+include Cargo.toml Cargo.lock rust-toolchain.toml uv.lock
+include LICENSE README.md SPEC.md AGENTS.md mkdocs.yml setup.cfg
+graft crates
+graft docs
+graft tests
+graft scripts
+recursive-include src *.py *.pyi py.typed *.json *.txt
+graft src/biov/assets
+
+# Plugin/agent packaging is a separate distribution concern. Do not include
+# host configuration, local build products, caches or generated native modules.
+prune .agents
+prune .claude-plugin
+prune .codex-plugin
+prune .github
+prune skills
+prune build
+prune dist
+prune target
+prune .venv
+prune docs/examples/sequence-analysis/.pixi
+exclude .gitignore .mcp.json .pre-commit-config.yaml
+exclude tests/test_plugin_distribution.py
+global-exclude __pycache__ *.py[cod] *.so *.dylib *.dll *.pyd

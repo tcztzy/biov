@@ -12,7 +12,7 @@ The `biov-storage` Rust library is a transport-independent, local copy-registrat
 and offline-resolution slice. It accepts already-present native source directories
 under a configured source root and publishes immutable snapshots under a separate
 configured store root. It does not download data, unpack remote archives, run an
-HTTP service or replace the existing Python artifact cache. Thin `biov-rs`
+HTTP service or replace the existing Python artifact cache. Thin `biov`
 CLI/MCP adapters expose the same Rust storage contracts. Calling the library is explicit; it does not discover and import existing
 caches automatically.
 
@@ -142,8 +142,8 @@ Registration and resolution take a JSON request file matching the Rust request
 fields below:
 
 ```sh
-biov-rs storage register --store-root STORE --source-root SOURCES --request-file register.json
-biov-rs storage resolve --store-root STORE --request-file resolve.json
+biov storage register --store-root STORE --source-root SOURCES --request-file register.json
+biov storage resolve --store-root STORE --request-file resolve.json
 ```
 
 `STORE` and `SOURCES` must already exist and be disjoint trusted directories.

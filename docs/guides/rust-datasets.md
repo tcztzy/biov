@@ -31,7 +31,7 @@ resolved dependency graph. From a checkout of this revision:
 cargo test --workspace --locked
 cargo install --locked --path crates/biov-cli
 mkdir -p data results
-biov-rs mcp --data-root ./data --output-root ./results
+biov mcp-native --data-root ./data --output-root ./results
 ```
 
 Both roots must already exist. Configure the MCP client to launch that executable
@@ -187,7 +187,7 @@ root and a new output directory:
 
 ```sh
 mkdir -p reopened-results
-biov-rs mcp --data-root ./results --output-root ./reopened-results
+biov mcp-native --data-root ./results --output-root ./reopened-results
 ```
 
 Call `dataset_reopen` with `record_path` set to the saved `.json` record's filename
@@ -385,7 +385,7 @@ is updated to match the corrupted bytes.
 For an installed binary outside the source directory:
 
 ```sh
-BIOV_TEST_BINARY="$(command -v biov-rs)" cargo test -p biov-cli --test mcp_stdio --locked
+BIOV_TEST_BINARY="$(command -v biov)" cargo test -p biov-cli --test mcp_stdio --locked
 ```
 
 ### Verified implementation scope (2026-10-03)
@@ -408,7 +408,7 @@ lockfile; source-distribution tests, wheel build and installed sequence bindings
 are separately checked. This validates a source-built Linux slice, not a portable
 prebuilt release, macOS runtime or a particular desktop MCP client's integration.
 
-Maturin's supported Git sdist generator preserves the full workspace instead of
-pruning native-only members while retaining their lockfile entries. Creating a
-new sdist from the repository requires Git and tracked sources; installing or
-building a wheel from the unpacked sdist does not require a Git checkout.
+The setuptools source manifest preserves the complete Cargo workspace and
+lockfile, including native-only members. Creating an sdist or building a wheel
+from its unpacked sources does not require Git or a checkout. The exact source
+manifest and mixed native executable/extension wheel are checked separately.

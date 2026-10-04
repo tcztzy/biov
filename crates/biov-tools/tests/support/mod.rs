@@ -28,3 +28,20 @@ pub fn manager(directory: &Path) -> PathBuf {
     std::os::unix::fs::symlink(executable, &manager).unwrap();
     manager
 }
+
+#[allow(dead_code)] // This module is also included by locked-only integration suites.
+static GLOBAL_FIXTURE: OnceLock<tempfile::TempDir> = OnceLock::new();
+/// Upstream global/tool CLI fixture, kept separate from locked scientific exec.
+#[allow(dead_code)] // Used by the global backend suite, not locked-only suites.
+pub fn global_manager(directory: &Path, name: &str) -> PathBuf {
+    let fixture = GLOBAL_FIXTURE.get_or_init(|| {
+        let directory = tempfile::tempdir().unwrap();
+        let executable = directory.path().join("global.py");
+        fs::write(&executable, include_bytes!("../fixtures/fake_global.py")).unwrap();
+        fs::set_permissions(executable, fs::Permissions::from_mode(0o755)).unwrap();
+        directory
+    });
+    let manager = directory.join(name);
+    std::os::unix::fs::symlink(fixture.path().join("global.py"), &manager).unwrap();
+    manager
+}

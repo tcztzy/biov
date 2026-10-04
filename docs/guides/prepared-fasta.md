@@ -29,11 +29,11 @@ source path comes from the native catalog/registered representation; do not assu
 every NCBI download uses this example's filename.
 
 ```sh
-biov-rs prepared fasta --store-root ./store --request-file prepare.json
+biov prepared fasta --store-root ./store --request-file prepare.json
 ```
 
 The `prepared_fasta` MCP tool exposes the same request through the existing
-`biov-rs mcp --data-root DIR --output-root DIR --store-root DIR` server. A configured
+`biov mcp-native --data-root DIR --output-root DIR --store-root DIR` server. A configured
 store is required. Input parameters cannot select another store or arbitrary
 external input. File contents stay on disk; the response contains bounded paths,
 recipe identity, sequence counts and whether a verified preparation was reused.

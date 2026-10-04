@@ -146,14 +146,14 @@ def test_cli_config_overrides_environment_before_import(
     assert json.loads(result.stdout) == [str(cache), ["--config", native_config]]
 
 
-def test_unusable_config_still_fails_for_cli_and_python_import(tmp_path):
-    """Reject invalid selections without interpreting a Python program's argv."""
+def test_unusable_config_fails_for_python_routes_but_not_native_help(tmp_path):
+    """Preserve Python configuration errors while native help stays independent."""
     config = tmp_path / "config.toml"
     config.touch()
     biov = shutil.which("biov", path=str(Path(sys.executable).parent))
     assert biov is not None
     for command, status in (
-        ([biov, "--help"], 2),
+        ([biov, "python", "--help"], 2),
         ([sys.executable, "-c", "import biov", "--config", str(config)], 1),
     ):
         result = subprocess.run(
@@ -167,6 +167,17 @@ def test_unusable_config_still_fails_for_cli_and_python_import(tmp_path):
         assert "BIOV_CONFIG" in result.stderr and "--config" in result.stderr
         if status == 2:
             assert "Traceback" not in result.stderr
+
+    native = subprocess.run(
+        [biov, "--help"],
+        env={**os.environ, "BIOV_CONFIG": str(tmp_path / "missing")},
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert native.returncode == 0
+    assert native.stdout == ""
+    assert "mcp-native" in native.stderr
 
 
 def test_select_config_file_exports_the_selection(

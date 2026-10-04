@@ -666,7 +666,7 @@ def test_mcp_surface_has_file_and_identifier_templates() -> None:
         assert annotations.open_world_hint is True
 
 
-def test_biov_mcp_stdio_subcommand_is_the_only_installed_entry_point(
+def test_biov_mcp_handler_is_preserved_with_native_entry_point(
     monkeypatch,
 ) -> None:
     """Launch MCP through ``biov mcp`` without a standalone console script."""
@@ -683,7 +683,10 @@ def test_biov_mcp_stdio_subcommand_is_the_only_installed_entry_point(
         pyproject = tomllib.load(file)
 
     scripts = pyproject["project"]["scripts"]
-    assert scripts["biov"] == "biov.cli:app"
+    assert "biov" not in scripts
+    assert [
+        binary["target"] for binary in pyproject["tool"]["setuptools-rust"]["bins"]
+    ] == ["biov"]
     assert "biov-mcp" not in scripts
 
 

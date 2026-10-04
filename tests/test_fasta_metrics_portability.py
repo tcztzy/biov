@@ -123,7 +123,7 @@ async def _mcp(binary: Path, data: Path, output: Path, store: Path | None):
     """Yield a real native MCP request function in a kernel-offline subprocess."""
     arguments = [
         str(binary),
-        "mcp",
+        "mcp-native",
         "--data-root",
         str(data),
         "--output-root",
@@ -190,7 +190,7 @@ async def _mcp(binary: Path, data: Path, output: Path, store: Path | None):
                 "clientInfo": {"name": "fasta-metrics-portability", "version": "1"},
             },
         )
-        assert initialized["serverInfo"]["name"] == "biov-rs"
+        assert initialized["serverInfo"]["name"] == "biov-native"
         assert process.stdin is not None
         process.stdin.write(b'{"jsonrpc":"2.0","method":"notifications/initialized"}\n')
         await process.stdin.drain()

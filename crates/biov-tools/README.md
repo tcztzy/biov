@@ -1,10 +1,53 @@
-# Native locked tools
+# Native tool adapters and locked workflows
 
-This crate owns a bounded local tool execution bridge, separate from CLI/MCP
-adapters. It delegates dependency resolution, installation and typed JSON activation to
-existing Pixi 0.81.0. It does not implement a package solver or scientific
-algorithms. The initial supported bundled entry points are `samtools` and
-`goatools`, on Linux x86_64 only. They do not require a preparation task.
+This crate provides thin upstream lifecycle adapters and a separate bundled
+locked-tool execution bridge, independent of CLI/MCP transport. It does not
+implement a package solver or scientific algorithms. The initial supported tools
+are `samtools` and `goatools` on Linux x86_64.
+
+## Upstream user-tool lifecycle
+
+CLI: `biov install`, `biov list`, `biov uninstall`. These delegate to Pixi 0.81.0
+global for Samtools 1.24 and uv tool for GOATOOLS 1.6.5 with statsmodels 0.14.6.
+GOATOOLS uses the complete BioV wheel's paired installed Python; a standalone
+Cargo binary cannot supply that interpreter. `--uv FILE` or `BIOV_UV_BIN` selects
+uv. Manager commands own environments, entrypoints, receipts and removal; no
+BioV launcher, retained runner, installed registry or publication journal is added.
+
+The dedicated layouts are `environment_root/pixi-global/{envs,bin,cache}` with an
+explicit native manifest at `pixi-global/manifests/pixi-global.toml`, and
+`environment_root/uv-tools/{tools,bin,cache,python}`. Always select that Pixi
+manifest rather than its user/XDG fallback. These locations isolate ordinary
+user-global tool settings and the separate bundled locked workspaces. The adapters
+never edit profiles/global settings or change the parent shell's PATH; add the
+reported dedicated bins explicitly. There is no bin-directory override.
+
+Inventory preserves official human-readable `pixi global list` and `uv tool list`
+output under root-labeled sections, consulting only existing owned roots. Manager
+stdout is capped at 1 MiB and unreadable, oversized or non-UTF-8 output fails
+without publishing a truncated inventory. There is no custom JSON list or
+independent readiness/package-integrity audit. A first-time empty list needs no
+manager and creates no root. Provisioning for locked execution does not appear in this inventory. Primary
+packages are pinned; upstream managers resolve other dependencies without the
+bundled scientific lock. Reinstall/retry uses their native behavior and does not
+promise a fully pinned transitive set or an atomic BioV-owned transaction.
+
+Upstream exposed commands and environments do not depend on the management BioV
+wheel and survive `uv tool uninstall biov`; GOATOOLS still needs its base Python
+installation to remain available. Selected uninstall removes that backend tool
+prefix and its commands, preserving the other tool, caches, scientific data,
+model weights, results and separate locked workspaces. Upgrades and general
+cleanup are outside this slice. BioV preflights redirected backend locations and
+bounded foreign/modified-command collisions; upstream entrypoints remain
+authoritative and backend failures propagate without force overwrites. These
+conservative guards require trusted roots and are not package authentication or
+a defense against hostile coordinated native-metadata/file changes.
+
+## Bundled locked execution
+
+CLI: `biov tools inspect|exec`. This separate interface delegates installation
+and typed JSON activation to existing Pixi 0.81.0. Both initial bundled entry
+points need no preparation task.
 
 The unchanged bundled manifest and lock are embedded in the executable and
 published together into a content-keyed workspace. Its identity is SHA-256 of
@@ -33,33 +76,29 @@ an exclusive workspace operation lock; runs hold shared locks until
 the selected native executable exits. Busy operations fail clearly without waiting. These locks
 coordinate this Rust API only: the Python manager and direct Pixi calls do not
 participate. Roots, executable and concurrent filesystem writers must be
-trusted. Paths and consistency checks are not a security sandbox. BioV does not
-remove installations, caches, biological data, weights or results in this slice.
-Installations are prefix-dependent, not relocatable data bundles.
-
-CLI: `biov-rs tools setup|inspect|exec`. MCP still exposes biological datasets
-and storage only; it gains no deployment-management tools. Durable lifecycle
-inventory, explicit updates, uninstall and cleanup remain SPEC T56–T57 gaps.
+trusted. Paths and consistency checks are not a security sandbox. The global
+uninstall adapters never remove these locked-workflow prefixes. Software prefixes
+are not relocatable biological data bundles. MCP remains a separate biological
+dataset/storage surface without deployment-management tools.
 
 Execution reads `pixi shell-hook --as-is --json`, verifies its prefix, project
 root/manifest, environment name and PATH prefix, then launches the exact installed
 executable with OS argv. It does not pass the executable through `pixi run`'s
 command-string parsing. Empty argv stays empty even when roots contain spaces or
 apostrophes. Pixi activation failures and mismatched returned paths fail closed.
-Pixi evaluates activation scripts when it computes the JSON environment; their
-exported variables reach the native executable without sourcing scripts twice.
-SIGINT, SIGTERM and SIGHUP sent directly to the running BioV wrapper are forwarded
-and BioV reaps its native child before releasing the workspace lock. Noninteractive
-execution uses a child process group, forwarding to its ordinary descendants too.
-Interactive execution keeps the terminal's foreground group and forwards directly
-to the selected child; terminal-generated signals retain normal group delivery.
-Detached descendants, programs that ignore signals and SIGKILL are outside this
-cooperative forwarding guarantee.
-Forwarding is cooperative, not an exactly-once signal protocol: terminal delivery
-overlapping child startup or simultaneous user/group interrupts can race.
-This process-wide policy is an explicit CLI opt-in through
-`execute_with_interrupt_forwarding`; the general `ToolStore::execute` method
-preserves its embedding application's own signal policy.
+Pixi evaluates activation scripts when computing its JSON environment; exported
+variables reach the native executable without sourcing scripts twice.
+Native `tools exec` CLI execution opts into
+`execute_with_interrupt_forwarding`: direct SIGINT, SIGTERM and SIGHUP are
+forwarded, and BioV reaps its native child before releasing the workspace lock.
+Noninteractive execution uses a separate child process group and forwards to
+ordinary descendants too. Interactive execution retains the terminal's foreground
+group and forwards directly to the selected child; terminal-generated signals
+retain normal group delivery. Detached descendants, signal-ignoring programs
+and SIGKILL are outside this cooperative guarantee. Forwarding does not establish
+exactly-once delivery across child startup or simultaneous user/group interrupts.
+The general `ToolStore::execute` method preserves the embedding application's
+signal policy.
 Some punctuation-heavy roots (such as dollar-containing roots) are unsupported
 by the pinned upstream activation; there is no universal pathname guarantee.
 

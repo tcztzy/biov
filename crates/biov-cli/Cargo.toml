@@ -7,7 +7,7 @@ license.workspace = true
 description = "Native BioV command-line and MCP adapters"
 
 [[bin]]
-name = "biov-rs"
+name = "biov"
 path = "src/main.rs"
 
 [dependencies]

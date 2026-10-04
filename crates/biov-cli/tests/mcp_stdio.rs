@@ -29,7 +29,7 @@ static NEXT_TEMP: AtomicU64 = AtomicU64::new(1);
 fn binary() -> PathBuf {
     std::env::var_os("BIOV_TEST_BINARY")
         .map(PathBuf::from)
-        .unwrap_or_else(|| PathBuf::from(env!("CARGO_BIN_EXE_biov-rs")))
+        .unwrap_or_else(|| PathBuf::from(env!("CARGO_BIN_EXE_biov")))
 }
 
 struct Fixture {
@@ -78,7 +78,7 @@ impl Server {
     async fn start_with_storage(data: &Path, output: &Path, store: Option<&Path>) -> Self {
         let mut command = Command::new(binary());
         command
-            .arg("mcp")
+            .arg("mcp-native")
             .arg("--data-root")
             .arg(data)
             .arg("--output-root")
@@ -115,7 +115,7 @@ impl Server {
             )
             .await;
         let result = initialization.get("result").expect("initialize result");
-        assert_eq!(result["serverInfo"]["name"], "biov-rs");
+        assert_eq!(result["serverInfo"]["name"], "biov-native");
         assert!(result["capabilities"]["tools"].is_object());
         assert_eq!(result["protocolVersion"], "2025-06-18");
         server
@@ -701,12 +701,12 @@ async fn symlink_escape_is_rejected_over_real_stdio() {
 async fn command_help_and_errors_never_write_to_stdout() {
     for (args, success) in [
         (vec!["--help"], true),
-        (vec!["mcp", "--help"], true),
+        (vec!["mcp-native", "--help"], true),
         (vec!["--version"], true),
         (vec![], false),
         (vec!["unknown"], false),
-        (vec!["mcp", "--unknown"], false),
-        (vec!["mcp", "--data-root", "missing"], false),
+        (vec!["mcp-native", "--unknown"], false),
+        (vec!["mcp-native", "--data-root", "missing"], false),
     ] {
         let output = timeout(DEADLINE, Command::new(binary()).args(args).output())
             .await
@@ -721,7 +721,7 @@ async fn command_help_and_errors_never_write_to_stdout() {
     }
     let fixture = Fixture::new();
     let output = Command::new(binary())
-        .arg("mcp")
+        .arg("mcp-native")
         .arg("--data-root")
         .arg(fixture.root.join("missing"))
         .arg("--output-root")
@@ -1368,7 +1368,7 @@ async fn storage_cli_rejects_fifo_before_opening_it() {
     let fixture = Fixture::new();
     let store = prepare_native_fixture(&fixture);
     let request_file = fixture.root.join("request.fifo");
-    // Test-only POSIX fixture creation. The actual biov-rs subprocess still runs
+    // Test-only POSIX fixture creation. The actual biov subprocess still runs
     // with empty PATH and cannot depend on this or another helper executable.
     assert!(std::process::Command::new("mkfifo")
         .arg(&request_file)

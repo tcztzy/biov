@@ -219,7 +219,7 @@ async def _export_bundle(binary: Path, data: Path, output: Path) -> dict:
     process = await asyncio.wait_for(
         asyncio.create_subprocess_exec(
             str(binary),
-            "mcp",
+            "mcp-native",
             "--data-root",
             str(data),
             "--output-root",
@@ -284,7 +284,7 @@ async def _export_bundle(binary: Path, data: Path, output: Path) -> dict:
             ),
             timeout=_TIMEOUT,
         )
-        assert initialized["serverInfo"]["name"] == "biov-rs"
+        assert initialized["serverInfo"]["name"] == "biov-native"
         process.stdin.write(b'{"jsonrpc":"2.0","method":"notifications/initialized"}\n')
         await asyncio.wait_for(process.stdin.drain(), timeout=_TIMEOUT)
         opened = await call(

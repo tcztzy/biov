@@ -190,7 +190,7 @@ separately from the scientific interpreter. The Linux driver used BioV 0.1.2,
 Python 3.12.14 and MCP 2.2.0, with all project dependencies installed from `uv.lock`.
 The example's adjacent Pixi lock was used unchanged. Initial PyPI and GitHub
 downloads encountered TLS connection errors. Repeating the locked dependency
-installation succeeded; Pixi was installed using the existing `biov setup python
+installation succeeded; Pixi was installed using the existing `biov python setup python
 --archive` option with its official Linux archive and the shipped SHA-256 check.
 Certificate verification remained enabled. The temporary container was removed
 after testing; this run does not establish native ARM64 Linux or real SSH/LSF

@@ -92,9 +92,29 @@ lifecycle in SPEC D6–D8 from currently implemented interfaces.
   Boundaries may be modules or crates. There is no fixed tiny crate budget;
   create a crate when real responsibilities or dependencies justify it, not to
   fill an architectural diagram
+- The only public BioV executable is Rust-owned `biov`. Package it and the PyO3
+  extension through upstream setuptools-rust; do not install a competing Python
+  `biov` console script or a `biov-rs` executable. Preserve existing Python
+  capabilities through an explicit installed-interpreter bridge until migrated
+- Keep install/list/uninstall thin: isolated Pixi 0.81.0 global for Samtools 1.24
+  and uv tool for GOATOOLS 1.6.5 plus statsmodels 0.14.6, using the installed
+  BioV package's paired Python. Delegate environments, entrypoints, inventory
+  and selected-tool removal to upstream managers; do not add a copied runner,
+  install registry/journal, custom launcher or hash-bound version map. Use an
+  explicit owned Pixi global manifest, never its user/XDG manifest fallback.
+  Inventory preserves upstream human-readable output only in dedicated roots;
+  no custom JSON list, bin override, full transitive lock or integrity claim.
+  Primary packages are pinned; remaining dependencies use upstream resolution.
+  User commands survive management-package removal, provided their backend
+  environments and GOATOOLS base Python remain. Uninstall removes the selected
+  backend tool environment/commands, retaining scientific data, outputs, caches
+  and separate bundled locked workflows. Never edit shell profiles/user-global
+  settings or imply that a child process changed its parent shell's PATH.
+  Preserve strict locked `tools exec`/`inspect` and provisioning receipts as a
+  separate scientific-workflow interface
 - Keep CLI/MCP adapters thin and use the official `rmcp` SDK for native MCP.
   The existing Python `biov mcp` route remains separate from the validated local
-  `biov-rs mcp --data-root DIR --output-root DIR` dataset route. Do not imply
+  `biov mcp-native --data-root DIR --output-root DIR` dataset route. Do not imply
   feature parity, change the existing entry point or claim client acceptance
   until the corresponding behavior is tested
 - Breaking API/type changes are acceptable during active development. Document

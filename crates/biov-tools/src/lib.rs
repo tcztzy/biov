@@ -12,6 +12,8 @@ use std::{
     process::{Command, ExitStatus, Stdio},
 };
 
+mod installed;
+
 pub const PIXI_VERSION: &str = "0.81.0";
 pub const SUPPORTED_TOOLS: &[&str] = &["samtools", "goatools"];
 const MANIFEST: &[u8] = include_bytes!("../../../src/biov/assets/environments/pyproject.toml");
@@ -127,13 +129,19 @@ impl ToolStore {
         Self::new(root, pixi)
     }
     pub fn workspace(&self) -> PathBuf {
-        self.root.join("workspaces").join(workspace_identity())
+        self.root.join("workspaces").join(self.identity())
+    }
+    fn identity(&self) -> String {
+        workspace_identity()
+    }
+    fn lock_digest(&self) -> String {
+        digest(LOCK)
     }
     fn supported(name: &str) -> Result<(), String> {
         if SUPPORTED_TOOLS.contains(&name) {
             Ok(())
         } else {
-            Err(format!("unsupported native tool {name:?}; initial tools are samtools and goatools; use the Python biov route for other environments"))
+            Err(format!("unsupported native tool {name:?}; initial tools are samtools and goatools; use biov python for other environments"))
         }
     }
     fn check_manager(&self) -> Result<(), String> {
@@ -198,10 +206,11 @@ impl ToolStore {
     fn verify_workspace(&self) -> Result<(), String> {
         for (name, expected) in [("pyproject.toml", MANIFEST), ("pixi.lock", LOCK)] {
             let path = self.workspace().join(name);
-            let meta = fs::symlink_metadata(&path)
-                .map_err(|e| format!("workspace is unavailable: {e}; run tools setup"))?;
+            let meta = fs::symlink_metadata(&path).map_err(|e| {
+                format!("workspace is unavailable: {e}; run biov tools exec <tool>")
+            })?;
             if !meta.is_file()
-                || meta.len() != expected.len() as u64
+                || meta.len() > 16 * 1024 * 1024
                 || fs::read(path).map_err(|e| e.to_string())? != expected
             {
                 return Err(
@@ -247,8 +256,10 @@ impl ToolStore {
             .write(true)
             .create(create)
             .truncate(false)
-            .open(directory.join(format!("{}.lock", workspace_identity())))
-            .map_err(|e| format!("native installation unavailable: {e}; run tools setup"))?;
+            .open(directory.join(format!("{}.lock", self.identity())))
+            .map_err(|e| {
+                format!("native installation unavailable: {e}; run biov tools exec <tool>")
+            })?;
         let result = if exclusive {
             FileExt::try_lock_exclusive(&file)
         } else {
@@ -304,7 +315,7 @@ impl ToolStore {
     fn read_receipt(&self, name: &str) -> Result<Receipt, String> {
         let path = self.receipt_path(name);
         let meta = fs::symlink_metadata(&path).map_err(|_| {
-            "no successful native locked setup receipt; run tools setup".to_string()
+            "no successful native locked setup receipt; run biov tools exec <tool>".to_string()
         })?;
         if !meta.is_file() || meta.len() > MAX_RECORD {
             return Err("native setup receipt is invalid".into());
@@ -314,11 +325,12 @@ impl ToolStore {
         let expected =
             self.expected_receipt(name, self.workspace().join(".pixi/envs").join(name))?;
         if receipt != expected {
-            return Err("native setup receipt does not match the selected bundled lock/platform; run tools setup".into());
+            return Err("native setup receipt does not match the selected bundled lock/platform; run biov tools exec <tool>".into());
         }
         let marker = receipt.prefix.join("conda-meta/pixi");
-        let metadata = fs::symlink_metadata(&marker)
-            .map_err(|_| "installed prefix is unavailable; run tools setup".to_string())?;
+        let metadata = fs::symlink_metadata(&marker).map_err(|_| {
+            "installed prefix is unavailable; run biov tools exec <tool>".to_string()
+        })?;
         if !metadata.is_file() || metadata.len() > MAX_RECORD {
             return Err("Pixi prefix marker is invalid".into());
         }
@@ -345,8 +357,8 @@ impl ToolStore {
         Ok(Receipt {
             format_version: 1,
             environment: name.into(),
-            workspace_sha256: workspace_identity(),
-            lock_sha256: digest(LOCK),
+            workspace_sha256: self.identity(),
+            lock_sha256: self.lock_digest(),
             manager_version: PIXI_VERSION.into(),
             platform: "linux-64".into(),
             prefix,
@@ -397,7 +409,7 @@ impl ToolStore {
     fn entrypoint(&self, receipt: &Receipt) -> Result<PathBuf, String> {
         self.entrypoint_location(&receipt.prefix, &receipt.environment)?;
         let entrypoint = receipt.prefix.join("bin").join(&receipt.environment);
-        let actual = fs::canonicalize(&entrypoint).map_err(|e| format!("selected installed executable is unavailable: {e}; run tools setup after inspecting the prefix"))?;
+        let actual = fs::canonicalize(&entrypoint).map_err(|e| format!("selected installed executable is unavailable: {e}; run biov tools exec <tool> after inspecting the prefix"))?;
         let prefix = fs::canonicalize(&receipt.prefix).map_err(|e| e.to_string())?;
         if prefix != receipt.prefix {
             return Err(
@@ -439,8 +451,8 @@ impl ToolStore {
             source: "bundled-pixi-lock",
             ownership: "biov-bundled-workspace",
             workspace: self.workspace(),
-            workspace_sha256: workspace_identity(),
-            lock_sha256: digest(LOCK),
+            workspace_sha256: self.identity(),
+            lock_sha256: self.lock_digest(),
             manager: self.pixi.clone(),
             required_manager_version: PIXI_VERSION,
             platform: "linux-64",
@@ -653,6 +665,14 @@ fn canonical_future_path(path: &Path) -> Result<PathBuf, String> {
     match fs::canonicalize(path) {
         Ok(path) => Ok(path),
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+            if path.components().next_back() == Some(std::path::Component::ParentDir) {
+                let parent =
+                    canonical_future_path(path.parent().ok_or("cannot resolve parent component")?)?;
+                return parent
+                    .parent()
+                    .map(Path::to_path_buf)
+                    .ok_or_else(|| "path escapes filesystem root".into());
+            }
             let name = path.file_name().ok_or("cannot resolve tool root")?;
             let parent = path.parent().ok_or("cannot resolve tool root parent")?;
             Ok(canonical_future_path(parent)?.join(name))

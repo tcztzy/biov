@@ -33,7 +33,6 @@ Repository = "https://github.com/tcztzy/biov"
 Documentation = "https://tcztzy.github.io/biov/"
 
 [project.scripts]
-biov = "biov.cli:app"
 biov-azimuth = "biov.azimuth:main"
 crisprprimer = "crisprprimer.__main__:run"
 crisprprimer-docker = "crisprprimer.docker:main"
@@ -57,33 +56,35 @@ encode = "biov.filesystem:BioVFileSystem"
 "reactome" = "biov.filesystem:BioVFileSystem"
 
 [build-system]
-requires = ["maturin==1.15.0"]
-build-backend = "maturin"
+requires = ["setuptools>=77.0.3", "setuptools-rust==1.13.0"]
+build-backend = "setuptools.build_meta"
 
-[tool.maturin]
-# Preserve the complete workspace: cargo-based sdist generation prunes unrelated
-# native CLI members while leaving a lockfile for the full workspace.
-sdist-generator = "git"
-manifest-path = "crates/biov-python/Cargo.toml"
-python-source = "src"
-module-name = "biov._native"
-python-packages = ["biov", "crisprprimer"]
+[tool.setuptools]
+package-dir = { "" = "src" }
+include-package-data = false
+
+[tool.setuptools.packages.find]
+where = ["src"]
+include = ["biov*", "crisprprimer*"]
+namespaces = false
+
+[tool.setuptools.package-data]
+biov = ["py.typed", "*.pyi", "assets/*", "assets/environments/*"]
+crisprprimer = ["*.json", "*.txt"]
+
+[[tool.setuptools-rust.ext-modules]]
+target = "biov._native"
+path = "crates/biov-python/Cargo.toml"
+binding = "PyO3"
 features = ["extension-module"]
-locked = true
-include = [
-    { path = "Cargo.toml", format = "sdist" },
-    { path = "Cargo.lock", format = "sdist" },
-    { path = "uv.lock", format = "sdist" },
-    { path = "rust-toolchain.toml", format = "sdist" },
-    { path = "crates/**/*", format = "sdist" },
-    { path = "docs/**/*", format = "sdist" },
-    { path = "tests/**/*", format = "sdist" },
-    { path = "scripts/**/*", format = "sdist" },
-    { path = "SPEC.md", format = "sdist" },
-    { path = "AGENTS.md", format = "sdist" },
-    { path = "mkdocs.yml", format = "sdist" },
-]
-exclude = ["**/__pycache__/**", "**/*.pyc", "docs/**/.pixi/**", "tests/test_plugin_distribution.py", ".agents/**", ".claude-plugin/**", ".codex-plugin/**", ".github/**", ".gitignore", ".mcp.json", ".pre-commit-config.yaml", "skills/**"]
+cargo-manifest-args = ["--locked"]
+optional = false
+
+[[tool.setuptools-rust.bins]]
+target = "biov"
+path = "crates/biov-cli/Cargo.toml"
+cargo-manifest-args = ["--locked"]
+optional = false
 
 [dependency-groups]
 dev = [

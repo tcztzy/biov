@@ -1,6 +1,6 @@
 """Retain full upstream TSV and check its term set, count ratios, and p-values.
 
-Run after ``biov setup goatools`` with the same environment configuration.
+Run after ``biov install goatools`` with the same environment configuration.
 No downloads, ontology updates, gene-ID inference, or BioV statistics are used.
 The output validation record checks selected results; installation and version
 evidence must accompany it to establish runtime identity.
@@ -65,11 +65,11 @@ def main() -> None:
     entry = (
         [str(options.native_binary.resolve()), "tools", "exec", "--no-install"]
         if options.native_binary is not None
-        else ["biov", "exec", "--no-install"]
+        else ["goatools"]
     )
     command = [
         *entry,
-        "goatools",
+        *(["goatools"] if options.native_binary is not None else []),
         "find_enrichment",
         str(fixture / "study.txt"),
         str(fixture / "population.txt"),
