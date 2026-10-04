@@ -1,15 +1,12 @@
 #![cfg(all(target_os = "linux", target_arch = "x86_64"))]
-use std::{fs, path::Path, process::Command};
+use std::{fs, process::Command};
+#[path = "../../biov-tools/tests/support/mod.rs"]
+mod support;
 
 #[test]
 fn native_cli_setup_inspection_literal_argv_and_status() {
     let dir = tempfile::tempdir().unwrap();
-    let pixi = dir.path().join("fake-pixi");
-    std::os::unix::fs::symlink(
-        Path::new(env!("CARGO_MANIFEST_DIR")).join("../biov-tools/tests/fixtures/fake_pixi.py"),
-        &pixi,
-    )
-    .unwrap();
+    let pixi = support::manager(dir.path());
     let root = dir.path().join("environments");
     let run = |words: &[&str]| {
         Command::new(env!("CARGO_BIN_EXE_biov-rs"))
@@ -42,7 +39,12 @@ fn native_cli_setup_inspection_literal_argv_and_status() {
         "--environment-root",
         "native-option",
     ]);
-    assert_eq!(first.status.code(), Some(37));
+    assert_eq!(
+        first.status.code(),
+        Some(37),
+        "{}",
+        String::from_utf8_lossy(&first.stderr)
+    );
     assert_eq!(first.stdout, b"native stdout\n");
     assert!(String::from_utf8(first.stderr)
         .unwrap()
@@ -67,6 +69,8 @@ fn native_cli_setup_inspection_literal_argv_and_status() {
 
 #[test]
 fn parser_errors_and_help_have_no_execution_side_effects() {
+    // Synchronize fixture materialization before either test starts a child.
+    support::prepare();
     for args in [
         vec!["tools"],
         vec!["tools", "unknown"],

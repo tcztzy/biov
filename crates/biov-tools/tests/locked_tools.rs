@@ -1,7 +1,8 @@
 #![cfg(all(target_os = "linux", target_arch = "x86_64"))]
 use biov_tools::{workspace_identity, ToolStore};
 use fs4::fs_std::FileExt;
-use std::{ffi::OsString, fs, path::Path};
+use std::{ffi::OsString, fs};
+mod support;
 
 struct Fixture {
     dir: tempfile::TempDir,
@@ -10,14 +11,7 @@ struct Fixture {
 impl Fixture {
     fn new() -> Self {
         let dir = tempfile::tempdir().unwrap();
-        let manager = dir.path().join("fake-pixi");
-        // Reuse an immutable fixture: parallel subprocesses can briefly inherit
-        // another thread's write descriptor, causing ETXTBSY for fresh scripts.
-        std::os::unix::fs::symlink(
-            Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/fake_pixi.py"),
-            &manager,
-        )
-        .unwrap();
+        let manager = support::manager(dir.path());
         let store = ToolStore::new(dir.path().join("environments"), manager).unwrap();
         Self { dir, store }
     }
