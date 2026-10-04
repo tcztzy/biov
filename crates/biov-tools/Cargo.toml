@@ -1,0 +1,20 @@
+[package]
+name = "biov-tools"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+description = "Bounded locked local biological tool execution"
+# Embedded assets are authoritative workspace files; standalone registry packaging
+# remains a separate release gate. Build from the complete checkout or sdist.
+publish = false
+
+[dependencies]
+serde = { version = "=1.0.229", features = ["derive"] }
+serde_json = "=1.0.151"
+sha2 = "=0.10.9"
+fs4 = { version = "=0.13.1", default-features = false, features = ["sync"] }
+tempfile = "=3.27.0"
+libc = "=0.2.190"
+signal-hook = "=0.3.18"
+signal-hook-registry = "=1.4.8"

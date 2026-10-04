@@ -11,6 +11,7 @@ name = "biov-rs"
 path = "src/main.rs"
 
 [dependencies]
+biov-tools = { path = "../biov-tools" }
 biov-data = { path = "../biov-data" }
 biov-prepared = { path = "../biov-prepared" }
 biov-storage = { path = "../biov-storage" }
@@ -22,6 +23,8 @@ serde = { version = "=1.0.229", features = ["derive"] }
 tokio = { version = "1", features = ["macros", "rt"] }
 
 [dev-dependencies]
+fs4 = { version = "=0.13.1", default-features = false, features = ["sync"] }
+tempfile = "=3.27.0"
 md-5 = "=0.10.6"
 base64 = "=0.22.1"
 polars = { version = "=0.51.0", default-features = false, features = ["ipc"] }

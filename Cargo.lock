@@ -168,6 +168,8 @@ dependencies = [
  "biov-data",
  "biov-prepared",
  "biov-storage",
+ "biov-tools",
+ "fs4",
  "md-5",
  "polars",
  "rmcp",
@@ -175,6 +177,7 @@ dependencies = [
  "serde",
  "serde_json",
  "sha2",
+ "tempfile",
  "tokio",
 ]
 
@@ -252,6 +255,20 @@ dependencies = [
  "sha2",
  "tempfile",
  "thiserror",
+]
+
+[[package]]
+name = "biov-tools"
+version = "0.1.2"
+dependencies = [
+ "fs4",
+ "libc",
+ "serde",
+ "serde_json",
+ "sha2",
+ "signal-hook",
+ "signal-hook-registry",
+ "tempfile",
 ]
 
 [[package]]

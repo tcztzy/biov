@@ -405,3 +405,143 @@ workflow, preserving every pre-existing environment's resolved package set:
 biov pixi update --manifest-path src/biov/assets/environments/pyproject.toml \
   --environment goatools --no-config
 ```
+
+## Native Rust locked-tool migration
+
+The first native local setup-to-execution path supports the bundled `samtools`
+and `goatools` environments on Linux x86_64. It uses the same unchanged native
+Pixi manifest and lock as the Python route. All BioV control logic is Rust;
+GOATOOLS itself still uses its locked Python runtime. The upstream programs keep
+their native arguments and scientific behavior.
+
+Build/install the standalone binary from this checkout:
+
+```bash
+cargo install --locked --path crates/biov-cli
+biov-rs tools --help
+```
+
+An existing Pixi 0.81.0 is required. The native route checks its reported version
+and does not bootstrap/download a manager. Select it with `--pixi FILE` or
+`BIOV_PIXI_BIN`; otherwise the matching managed location under the selected root
+is preferred, then `pixi` on PATH. A configured incompatible executable fails
+without switching sources. Existing `biov setup goatools` can provision the
+manager first if you use the Python route.
+
+```bash
+export BIOV_ENVIRONMENT_ROOT="$PWD/.biov-tool-environments"
+export BIOV_PIXI_BIN="/path/to/existing/pixi"
+biov-rs tools inspect goatools
+biov-rs tools setup goatools
+biov-rs tools exec --no-install goatools find_enrichment --help
+biov-rs tools exec samtools --version
+```
+
+The executable example path is a placeholder for your matching local manager.
+Without an explicit environment root, the native Linux default is
+`$XDG_DATA_HOME/biov/environments`, or `$HOME/.local/share/biov/environments`.
+`--environment-root` overrides `BIOV_ENVIRONMENT_ROOT`. Roots and manager/native
+cache locations are separate; Pixi's native cache environment variables remain
+available. `BIOV_HOME` is inherited without rewriting provider caches.
+Native paths are literal OS paths: quoted `~` is not expanded. Use `$HOME` or
+unquoted shell expansion. This intentionally differs from the Python route,
+which applies `Path.expanduser()` to configured paths.
+
+Default `tools exec` performs locked setup when there is no matching successful
+native setup receipt and usable selected executable. A missing executable is
+repaired from the unchanged lock: normal install is attempted first, then
+`pixi reinstall --locked` if it is still missing. Redirected prefixes and unsafe
+entrypoint symlinks fail before repair. `--no-install` never provisions: it
+requires that receipt and a consistent Pixi prefix marker. Existing Python-provisioned prefixes need
+one native `tools setup` to establish the new receipt. Inspection works without
+running the manager or creating a workspace and returns one JSON record on
+stdout. Its `setup_recorded` status identifies recorded installation facts,
+not independently verified package integrity, availability of the manager at
+inspection time, biological validity or successful execution. Setup diagnostics
+and its final receipt use stderr; execution inherits native stdio and exit status
+(including the conventional 128+signal exit code for signal termination).
+Argument/configuration, setup, activation and pre-launch errors return 2 with
+BioV diagnostics; an upstream program may also legitimately return 2. Exit status
+alone does not distinguish these cases. The native status is preserved once the
+selected executable has started.
+During native execution, direct SIGINT, SIGTERM and SIGHUP to BioV are forwarded;
+BioV waits for the native child and retains its workspace lock until that child
+exits. Noninteractive execution forwards to a separate child process group,
+including ordinary descendants. Interactive execution retains the terminal's
+foreground group and forwards directly to the selected child; terminal signals
+still reach the foreground group normally. Detached descendants, signal-ignoring
+programs and SIGKILL do not have a cooperative cleanup guarantee.
+This does not establish exactly-once delivery across child startup or simultaneous
+user/group interrupts.
+
+BioV options precede the tool name. An optional initial `--` after the name is
+removed; everything else, including option-looking arguments, quoted strings,
+empty strings and shell metacharacters, is passed as literal UTF-8 argv.
+Non-UTF-8 arguments fail clearly before execution. The initial native route
+reads typed `pixi shell-hook --as-is --json` activation, verifies its prefix,
+project root/manifest, environment name and PATH prefix, then launches the exact
+installed executable with OS argv, so a missing entry point cannot fall back to a same-name host executable.
+No `pixi run` command-string parsing is used; zero native arguments stay zero,
+including roots with spaces/apostrophes,
+and Pixi already applies activation scripts while computing the returned variables.
+Their exported variables are preserved; scripts are not sourced a second time.
+Some punctuation-heavy roots remain
+limited by pinned Pixi activation; failures or path expansions fail closed. It
+intentionally bypasses the trivial bundled GOATOOLS shell task; native task
+interpolation is not needed for these two entry points. `--cwd DIR`
+selects the existing local analysis directory without moving the installation:
+
+```bash
+biov-rs tools exec --no-install --cwd ./analysis goatools find_enrichment --help
+```
+
+This explicitly local interface does not read Python TOML configuration,
+select project manifests, route to SSH, add commands to PATH, alter shell profiles,
+or silently adopt external environments. Other bundled tools, especially those
+requiring preparation tasks, still use the Python route. It is a bounded Rust
+migration, not completion of the planned installed inventory, upgrades, removal
+or cache-cleanup lifecycle. Workspace locks coordinate native setup/runs only;
+Python/direct Pixi operations and hostile concurrent writers are outside that
+coordination contract. A failed initial setup has no success receipt; repairing
+a damaged prefix is not a transactional upgrade.
+
+The fake-manager Rust acceptance tests verify pins, failure and busy-state
+handling, literal argv/stdio/status, unchanged bundled bytes and cross-task reuse.
+The existing deterministic GOATOOLS enrichment fixture can also be exercised
+through this native entry point, with the same independent term/count/Fisher/
+Bonferroni/BH checks. Neither test establishes general package/platform coverage.
+
+For the independent GOATOOLS scientific acceptance case after native setup:
+
+```bash
+python scripts/validate_goatools.py ./native-go-validation \
+  --native-binary "$(command -v biov-rs)"
+```
+
+Manual evidence from 2026-10-04 UTC on a Linux x86_64 cloud test executor
+(Pixi 0.81.0, Rust 1.89.0): isolated native setup and this full enrichment check passed with
+GOATOOLS 1.6.5, SciPy 1.18.1 and statsmodels 0.14.6. The test included a
+quote-bearing output path. Default native setup/exec also installed and reported
+Samtools 1.24 with HTSlib 1.24 from the unchanged bundled lock. These observations
+cover those two selected distributions and this synthetic scientific example.
+
+Reproduce real-manager regression coverage, distinct from fake-manager tests:
+
+```bash
+export BIOV_TEST_REAL_PIXI="/path/to/existing/pixi"
+cargo test --locked -p biov-tools --lib real_pixi_tests -- --ignored --nocapture
+```
+
+The activation/argv test uses synthetic prefixes and sentinel executables; it
+checks zero arguments under spaces/apostrophes, literal UTF-8 argv, native exit
+status/signals and fail-closed handling of expanded activation paths. It does
+not prove scientific package installation. The separate repair test installs
+locked Samtools into its own temporary prefix, removes its executable, repairs
+it and verifies unchanged lock bytes plus a successful native `--version` run.
+Use native Pixi cache settings for offline/cached package availability. Both
+opt-in tests passed with the pinned real manager on the same dated Linux host.
+The GOATOOLS fixture above separately checks scientific enrichment results.
+
+The new tools crate is workspace-coupled to authoritative bundled assets and
+explicitly disables registry publishing. Supported native source builds use the
+complete checkout or sdist; an installed binary runs outside the checkout.

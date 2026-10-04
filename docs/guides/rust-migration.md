@@ -13,6 +13,10 @@ Linux scope (SPEC T66–T67).
 A separate [native-storage slice](native-storage.md) adds immutable registration
 of existing RefSeq packages and explicitly declared PDB representations, with
 offline filesystem discovery. The [prepared RefSeq FASTA](prepared-fasta.md) extension adds conventional FAI/TSV indices (D14/T72); its bounded `dataset_fasta_windows` tool connects exact prepared sequence access to Rust Polars tables (D15/T73). Canonical GC excludes ambiguity and is null without canonical bases; weighted GC retains the existing core IUPAC policy with every base in its denominator. Other providers and generalized prepared transforms remain separate future work.
+A [native locked-tool bridge](environments.md#native-rust-locked-tool-migration)
+now delegates bundled Samtools/GOATOOLS setup and literal local execution to pinned
+Pixi, with recorded setup inspection and cross-task reuse. It does not complete
+installed inventory, upgrades, removal or cache cleanup.
 The rest of the rewrite remains planned; pandas, Biopython and RuRanges'
 Rust-backed interval kernels still support unmigrated features.
 
@@ -254,7 +258,7 @@ Use responsibility boundaries for offline identifiers, formats, biological
 computation, provider/data/provenance, cache mechanics, tool lifecycle/execution,
 optional Python and CLI/MCP. There is no fixed small-crate budget and no reason
 to create empty crates. The current workspace adds `biov-identifiers`,
-`biov-data`, `biov-cli` and the separate `biov-storage` library to the existing
+`biov-data`, `biov-cli`, `biov-tools` and the separate `biov-storage` library to the existing
 `biov-core`/`biov-python` sequence slice.
 Transport adapters call standalone Rust library APIs.
 
@@ -391,14 +395,16 @@ target tests and checksums. See [maturin distribution](https://www.maturin.rs/di
 
 ## Source builds and native validation
 
-The Cargo workspace contains seven members. The sequence pair is `biov-core`
+The Cargo workspace contains eight members. The sequence pair is `biov-core`
 (library and development `biov-core` binary) and `biov-python` (PyO3 extension).
 The native dataset path adds `biov-identifiers` (offline biological identifiers),
 `biov-data` (Polars datasets and provenance) and `biov-cli` (the `biov-rs` MCP
 binary). `biov-storage` owns local immutable native snapshots and offline
 resolution without Polars or transport dependencies. `biov-prepared` consumes
 verified native snapshots to produce conventional FASTA indices and portable
-prepared-view provenance through a pinned upstream format library. Rust 1.89.0 is both the pinned build toolchain and declared MSRV. PyO3 is pinned to 0.26.0; the committed Cargo
+prepared-view provenance through a pinned upstream format library. `biov-tools`
+owns the bounded native locked Pixi setup/execution bridge, independent of
+Polars and transport. Rust 1.89.0 is both the pinned build toolchain and declared MSRV. PyO3 is pinned to 0.26.0; the committed Cargo
 lockfile controls its transitive dependencies. Maturin 1.15.0 is the pinned PEP 517 build
 backend. The Python 3.12 stable ABI is selected for this small string/list-only
 boundary; no NumPy ABI or interpreter objects cross detached Rust computation.

@@ -6,6 +6,7 @@ The output validation record checks selected results; installation and version
 evidence must accompany it to establish runtime identity.
 """
 
+import argparse
 import csv
 import hashlib
 import json
@@ -52,13 +53,22 @@ def main() -> None:
     Raises:
         ValueError: If the TSV header is missing or scientific checks fail.
     """
-    output = Path(sys.argv[1]).resolve()
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("output", type=Path)
+    parser.add_argument(
+        "--native-binary", type=Path, help="Use the Rust tools exec route"
+    )
+    options = parser.parse_args()
+    output = options.output.resolve()
     output.mkdir(parents=True, exist_ok=True)
     fixture = Path(__file__).resolve().parents[1] / "tests" / "fixtures" / "goatools"
+    entry = (
+        [str(options.native_binary.resolve()), "tools", "exec", "--no-install"]
+        if options.native_binary is not None
+        else ["biov", "exec", "--no-install"]
+    )
     command = [
-        "biov",
-        "exec",
-        "--no-install",
+        *entry,
         "goatools",
         "find_enrichment",
         str(fixture / "study.txt"),
