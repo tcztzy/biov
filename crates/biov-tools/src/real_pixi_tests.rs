@@ -115,6 +115,52 @@ fn real_pixi_activation_preserves_zero_and_literal_arguments() {
 }
 
 #[test]
+#[ignore = "requires BIOV_TEST_REAL_PIXI=path/to/Pixi0.81.0; synthetic prefix, no downloads"]
+fn real_pixi_conda_activation_exports_reach_native_launch_once() {
+    let directory = tempfile::tempdir().unwrap();
+    let (store, record) = synthetic_store(&directory.path().join("activation O'Connor"));
+    let prefix = record.parent().unwrap();
+    let activation_directory = prefix.join("etc/conda/activate.d");
+    fs::create_dir_all(&activation_directory).unwrap();
+    let counter = record.with_extension("activation-count");
+    fs::write(
+        activation_directory.join("biov-export-probe.sh"),
+        format!(
+            "export BIOV_REAL_PIXI_ACTIVATION_EXPORT='activated value with spaces'\nprintf x >> {}\n",
+            shell_word(&counter),
+        ),
+    )
+    .unwrap();
+    let export_record = record.with_extension("activation-export");
+    let prefix_record = record.with_extension("activation-prefix");
+    fs::write(
+        prefix.join("bin/samtools"),
+        format!(
+            "#!/bin/sh\nprintf '%s' \"${{BIOV_REAL_PIXI_ACTIVATION_EXPORT-}}\" > {}\nprintf '%s' \"${{CONDA_PREFIX-}}\" > {}\nexit 37\n",
+            shell_word(&export_record),
+            shell_word(&prefix_record),
+        ),
+    )
+    .unwrap();
+
+    // JSON activation already runs package hooks. The exact native executable
+    // must receive their exports without BioV sourcing the hooks a second time.
+    let status = store
+        .execute("samtools", &[], Some(directory.path()))
+        .unwrap();
+    assert_eq!(status.code(), Some(37));
+    assert_eq!(
+        fs::read_to_string(export_record).unwrap(),
+        "activated value with spaces"
+    );
+    assert_eq!(
+        fs::read_to_string(prefix_record).unwrap(),
+        prefix.to_str().unwrap()
+    );
+    assert_eq!(fs::read_to_string(counter).unwrap(), "x");
+}
+
+#[test]
 #[ignore = "requires BIOV_TEST_REAL_PIXI and cached/network access for locked Samtools"]
 fn real_pixi_repairs_missing_locked_samtools() {
     let directory = tempfile::tempdir().unwrap();

@@ -546,6 +546,9 @@ impl ToolStore {
         let mut args = self.control_args("shell-hook", name);
         args.extend(["--as-is".into(), "--json".into()]);
         let output = self.capture_in(args, cwd)?;
+        // Pixi 0.81.0 already evaluates manifest/conda activation scripts while
+        // computing these variables. Its activation_scripts field is informational,
+        // not pending work: sourcing it again would repeat script side effects.
         #[derive(Deserialize)]
         struct Activation {
             environment_variables: BTreeMap<String, String>,
@@ -585,6 +588,31 @@ impl ToolStore {
         arguments: &[OsString],
         cwd: Option<&Path>,
     ) -> Result<ExitStatus, String> {
+        self.execute_using(name, arguments, cwd, |command| {
+            command
+                .status()
+                .map_err(|e| format!("native executable launch failed: {e}"))
+        })
+    }
+    /// CLI-owned cooperative interrupt policy. This explicitly installs Unix
+    /// process-wide signal handlers, forwarding INT/TERM/HUP during execution and
+    /// using default dispositions afterward. Embedders should use `execute` and
+    /// retain their own process signal policy instead.
+    pub fn execute_with_interrupt_forwarding(
+        &self,
+        name: &str,
+        arguments: &[OsString],
+        cwd: Option<&Path>,
+    ) -> Result<ExitStatus, String> {
+        self.execute_using(name, arguments, cwd, crate::execution::run)
+    }
+    fn execute_using(
+        &self,
+        name: &str,
+        arguments: &[OsString],
+        cwd: Option<&Path>,
+        run: impl FnOnce(&mut Command) -> Result<ExitStatus, String>,
+    ) -> Result<ExitStatus, String> {
         Self::supported(name)?;
         if arguments.iter().any(|argument| argument.to_str().is_none()) {
             return Err("native tool arguments must be UTF-8".into());
@@ -613,11 +641,11 @@ impl ToolStore {
         if let Some(cwd) = cwd {
             command.current_dir(cwd);
         }
-        command
-            .status()
-            .map_err(|e| format!("native executable launch failed: {e}"))
+        run(&mut command)
     }
 }
+
+mod execution;
 
 // Pixi canonicalizes the workspace before reporting its prefix. Resolve the
 // existing ancestor now without creating anything during inspection.

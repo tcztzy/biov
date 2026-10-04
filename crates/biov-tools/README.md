@@ -46,6 +46,20 @@ root/manifest, environment name and PATH prefix, then launches the exact install
 executable with OS argv. It does not pass the executable through `pixi run`'s
 command-string parsing. Empty argv stays empty even when roots contain spaces or
 apostrophes. Pixi activation failures and mismatched returned paths fail closed.
+Pixi evaluates activation scripts when it computes the JSON environment; their
+exported variables reach the native executable without sourcing scripts twice.
+SIGINT, SIGTERM and SIGHUP sent directly to the running BioV wrapper are forwarded
+and BioV reaps its native child before releasing the workspace lock. Noninteractive
+execution uses a child process group, forwarding to its ordinary descendants too.
+Interactive execution keeps the terminal's foreground group and forwards directly
+to the selected child; terminal-generated signals retain normal group delivery.
+Detached descendants, programs that ignore signals and SIGKILL are outside this
+cooperative forwarding guarantee.
+Forwarding is cooperative, not an exactly-once signal protocol: terminal delivery
+overlapping child startup or simultaneous user/group interrupts can race.
+This process-wide policy is an explicit CLI opt-in through
+`execute_with_interrupt_forwarding`; the general `ToolStore::execute` method
+preserves its embedding application's own signal policy.
 Some punctuation-heavy roots (such as dollar-containing roots) are unsupported
 by the pinned upstream activation; there is no universal pathname guarantee.
 

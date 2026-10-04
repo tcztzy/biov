@@ -464,6 +464,15 @@ Argument/configuration, setup, activation and pre-launch errors return 2 with
 BioV diagnostics; an upstream program may also legitimately return 2. Exit status
 alone does not distinguish these cases. The native status is preserved once the
 selected executable has started.
+During native execution, direct SIGINT, SIGTERM and SIGHUP to BioV are forwarded;
+BioV waits for the native child and retains its workspace lock until that child
+exits. Noninteractive execution forwards to a separate child process group,
+including ordinary descendants. Interactive execution retains the terminal's
+foreground group and forwards directly to the selected child; terminal signals
+still reach the foreground group normally. Detached descendants, signal-ignoring
+programs and SIGKILL do not have a cooperative cleanup guarantee.
+This does not establish exactly-once delivery across child startup or simultaneous
+user/group interrupts.
 
 BioV options precede the tool name. An optional initial `--` after the name is
 removed; everything else, including option-looking arguments, quoted strings,
@@ -473,7 +482,10 @@ reads typed `pixi shell-hook --as-is --json` activation, verifies its prefix,
 project root/manifest, environment name and PATH prefix, then launches the exact
 installed executable with OS argv, so a missing entry point cannot fall back to a same-name host executable.
 No `pixi run` command-string parsing is used; zero native arguments stay zero,
-including roots with spaces/apostrophes. Some punctuation-heavy roots remain
+including roots with spaces/apostrophes,
+and Pixi already applies activation scripts while computing the returned variables.
+Their exported variables are preserved; scripts are not sourced a second time.
+Some punctuation-heavy roots remain
 limited by pinned Pixi activation; failures or path expansions fail closed. It
 intentionally bypasses the trivial bundled GOATOOLS shell task; native task
 interpolation is not needed for these two entry points. `--cwd DIR`

@@ -89,7 +89,7 @@ pub fn run(args: impl IntoIterator<Item = OsString>) -> Result<ExitCode, String>
     if !no_install {
         store.setup(&name)?;
     }
-    let status = store.execute(&name, &native, cwd.as_deref())?;
+    let status = store.execute_with_interrupt_forwarding(&name, &native, cwd.as_deref())?;
     #[cfg(unix)]
     {
         use std::os::unix::process::ExitStatusExt;
