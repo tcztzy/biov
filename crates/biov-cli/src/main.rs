@@ -3,6 +3,7 @@
 mod mcp;
 mod prepared_cli;
 mod storage_cli;
+mod tools_cli;
 
 use std::{collections::BTreeMap, ffi::OsString, path::PathBuf, process::ExitCode};
 
@@ -11,7 +12,7 @@ use biov_prepared::PreparedStore;
 use biov_storage::NativeStore;
 use rmcp::{transport::stdio, ServiceExt};
 
-const HELP: &str = "BioV native dataset, storage and prepared tools\n\nUsage:\n  biov-rs mcp --data-root DIR --output-root DIR [--store-root DIR]\n  biov-rs storage register --store-root DIR --source-root DIR --request-file JSON\n  biov-rs storage resolve --store-root DIR --request-file JSON\n  biov-rs prepared fasta --store-root DIR --request-file JSON\n  biov-rs --help\n  biov-rs --version\n\nThe MCP server uses JSON-RPC over stdio. Dataset input paths and storage\nregistration sources are restricted to --data-root; exports are restricted to\n--output-root. Optional --store-root enables durable native snapshots and prepared FASTA indices.\nOne-shot storage and prepared commands read at most 64 KiB of typed JSON and return one JSON\nresult on stdout. Resolution and preparation need only the store, not the original source.\nPrepared FASTA requires an exact versioned RefSeq reference, snapshot ID and\nsource-relative genome_fasta path; it never rewrites native snapshot files.\nNo Python runtime is used. Help, diagnostics, and errors go to stderr.";
+const HELP: &str = "BioV native dataset, storage, prepared and locked-tool interfaces\n\nUsage:\n  biov-rs mcp --data-root DIR --output-root DIR [--store-root DIR]\n  biov-rs storage register --store-root DIR --source-root DIR --request-file JSON\n  biov-rs storage resolve --store-root DIR --request-file JSON\n  biov-rs prepared fasta --store-root DIR --request-file JSON\n  biov-rs tools setup|inspect|exec ...\n  biov-rs --help\n  biov-rs --version\n\nThe MCP server uses JSON-RPC over stdio. Dataset input paths and storage\nregistration sources are restricted to --data-root; exports are restricted to\n--output-root. Optional --store-root enables durable native snapshots and prepared FASTA indices.\nOne-shot storage and prepared commands read at most 64 KiB of typed JSON and return one JSON\nresult on stdout. Resolution and preparation need only the store, not the original source.\nPrepared FASTA requires an exact versioned RefSeq reference, snapshot ID and\nsource-relative genome_fasta path; it never rewrites native snapshot files.\nBioV native orchestration uses no Python runtime; selected scientific tools may\nuse their own locked runtimes. Help, diagnostics, and errors go to stderr.";
 
 #[derive(Debug, PartialEq, Eq)]
 enum Command {
@@ -146,6 +147,16 @@ fn parse_args(args: impl IntoIterator<Item = OsString>) -> Result<Command, Strin
 
 #[tokio::main(flavor = "current_thread")]
 async fn main() -> ExitCode {
+    let mut raw = std::env::args_os().skip(1);
+    if raw.next().as_deref().is_some_and(|value| value == "tools") {
+        return match tools_cli::run(raw) {
+            Ok(status) => status,
+            Err(error) => {
+                eprintln!("biov-rs: {}", mcp::bounded_text(&error, 2048));
+                ExitCode::from(2)
+            }
+        };
+    }
     let command = match parse_args(std::env::args_os().skip(1)) {
         Ok(command) => command,
         Err(error) => {

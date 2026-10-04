@@ -12,6 +12,8 @@ coordinates, units and complete data.
 
 - Run scientific programs through declared, locked Pixi environments or explicit
   on-demand package sources
+- Use Rust-native locked setup and literal execution for initial Samtools/GOATOOLS
+  entry points, with [recorded local setup inspection](docs/guides/environments.md#native-rust-locked-tool-migration)
 - Resolve biological identifiers to native provider files and reusable local
   artifacts, with Python and fsspec access
 - Work with genomic intervals and explicitly typed DNA, RNA and protein sequences
@@ -74,6 +76,24 @@ A bare name selects a declared Pixi environment if present, otherwise a temporar
 Pixi environment. PyPI and npm use `uv tool run` and `npx --yes`; those on-demand
 sources do not use the project's lock. Missing managers produce an error rather
 than silently changing sources. `biov pixi` passes native Pixi arguments through.
+
+The initial native Rust tool path needs an existing Pixi 0.81.0 and supports
+Samtools and GOATOOLS on Linux x86_64. It reuses the bundled manifest/lock and
+content-keyed environment root; it does not bootstrap a manager or use Python
+for BioV orchestration. Scientific tools keep their own locked runtimes:
+
+```sh
+cargo install --locked --path crates/biov-cli
+biov-rs tools setup goatools
+biov-rs tools exec --no-install goatools find_enrichment --help
+biov-rs tools inspect goatools
+```
+
+`BIOV_ENVIRONMENT_ROOT` and `BIOV_PIXI_BIN` select the local storage root and
+matching manager. Default native `tools exec` performs locked setup when needed.
+Other environments, project manifests, SSH and complete lifecycle management
+remain separate from this bounded migration; see the
+[native tool guide](docs/guides/environments.md#native-rust-locked-tool-migration).
 
 Run an ordinary script with `biov run analysis.py`; use
 `biov run --executor lsf analysis.py` for an LSF submission receipt. A receipt is

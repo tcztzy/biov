@@ -405,3 +405,95 @@ workflow, preserving every pre-existing environment's resolved package set:
 biov pixi update --manifest-path src/biov/assets/environments/pyproject.toml \
   --environment goatools --no-config
 ```
+
+## Native Rust locked-tool migration
+
+The first native local setup-to-execution path supports the bundled `samtools`
+and `goatools` environments on Linux x86_64. It uses the same unchanged native
+Pixi manifest and lock as the Python route. All BioV control logic is Rust;
+GOATOOLS itself still uses its locked Python runtime. The upstream programs keep
+their native arguments and scientific behavior.
+
+Build/install the standalone binary from this checkout:
+
+```bash
+cargo install --locked --path crates/biov-cli
+biov-rs tools --help
+```
+
+An existing Pixi 0.81.0 is required. The native route checks its reported version
+and does not bootstrap/download a manager. Select it with `--pixi FILE` or
+`BIOV_PIXI_BIN`; otherwise the matching managed location under the selected root
+is preferred, then `pixi` on PATH. A configured incompatible executable fails
+without switching sources. Existing `biov setup goatools` can provision the
+manager first if you use the Python route.
+
+```bash
+export BIOV_ENVIRONMENT_ROOT="$PWD/.biov-tool-environments"
+export BIOV_PIXI_BIN="/path/to/existing/pixi"
+biov-rs tools inspect goatools
+biov-rs tools setup goatools
+biov-rs tools exec --no-install goatools find_enrichment --help
+biov-rs tools exec samtools --version
+```
+
+The executable example path is a placeholder for your matching local manager.
+Without an explicit environment root, the native Linux default is
+`$XDG_DATA_HOME/biov/environments`, or `$HOME/.local/share/biov/environments`.
+`--environment-root` overrides `BIOV_ENVIRONMENT_ROOT`. Roots and manager/native
+cache locations are separate; Pixi's native cache environment variables remain
+available. `BIOV_HOME` is inherited without rewriting provider caches.
+
+Default `tools exec` performs locked setup when there is no matching successful
+native setup receipt. `--no-install` never provisions: it requires that receipt
+and a consistent Pixi prefix marker. Existing Python-provisioned prefixes need
+one native `tools setup` to establish the new receipt. Inspection works without
+running the manager or creating a workspace and returns one JSON record on
+stdout. Its `setup_recorded` status identifies recorded installation facts,
+not independently verified package integrity, availability of the manager at
+inspection time, biological validity or successful execution. Setup diagnostics
+and its final receipt use stderr; execution inherits native stdio and exit status
+(including the conventional 128+signal exit code for signal termination).
+
+BioV options precede the tool name. An optional initial `--` after the name is
+removed; everything else, including option-looking arguments, quoted strings,
+empty strings and shell metacharacters, is passed as literal UTF-8 argv.
+Non-UTF-8 arguments fail clearly before execution. The initial native route
+selects the exact executable inside the installed prefix through Pixi activation,
+so a missing entry point cannot fall back to a same-name host executable. It
+intentionally bypasses the trivial bundled GOATOOLS shell task; native task
+interpolation is not needed for these two entry points. `--cwd DIR`
+selects the existing local analysis directory without moving the installation:
+
+```bash
+biov-rs tools exec --no-install --cwd ./analysis goatools find_enrichment --help
+```
+
+This explicitly local interface does not read Python TOML configuration,
+select project manifests, route to SSH, add commands to PATH, alter shell profiles,
+or silently adopt external environments. Other bundled tools, especially those
+requiring preparation tasks, still use the Python route. It is a bounded Rust
+migration, not completion of the planned installed inventory, upgrades, removal
+or cache-cleanup lifecycle. Workspace locks coordinate native setup/runs only;
+Python/direct Pixi operations and hostile concurrent writers are outside that
+coordination contract. A failed initial setup has no success receipt; repairing
+an unrecorded prefix is not a transactional upgrade.
+
+The fake-manager Rust acceptance tests verify pins, failure and busy-state
+handling, literal argv/stdio/status, unchanged bundled bytes and cross-task reuse.
+The existing deterministic GOATOOLS enrichment fixture can also be exercised
+through this native entry point, with the same independent term/count/Fisher/
+Bonferroni/BH checks. Neither test establishes general package/platform coverage.
+
+For the independent GOATOOLS scientific acceptance case after native setup:
+
+```bash
+python scripts/validate_goatools.py ./native-go-validation \
+  --native-binary "$(command -v biov-rs)"
+```
+
+An isolated native Linux-64 setup and this full enrichment check passed with
+GOATOOLS 1.6.5, SciPy 1.18.1 and statsmodels 0.14.6. The test included a
+quote-bearing output path. Default native setup/exec also installed and reported
+Samtools 1.24 with HTSlib 1.24 from the unchanged bundled lock. These observations
+cover those two selected distributions and this synthetic scientific example.
