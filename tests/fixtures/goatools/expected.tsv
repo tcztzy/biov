@@ -1,0 +1,4 @@
+# GO	NS	enrichment	name	ratio_in_study	ratio_in_pop	fold_enrichment	p_uncorrected	depth	study_count	p_bonferroni	p_fdr_bh	study_items
+GO:9000001	BP	e	synthetic alpha	4/4	4/10	2.5	0.0047619047619047615	1	4	0.014285714285714284	0.0071428571428571435	1, 2, 3, 4
+GO:9000002	BP	p	synthetic beta	0/4	6/10	0.0	0.004761904761904762	1	0	0.014285714285714287	0.0071428571428571435	
+GO:0008150	BP	p	biological_process	4/4	10/10	1.0	1.0	0	4	1.0	1.0	1, 2, 3, 4

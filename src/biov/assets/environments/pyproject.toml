@@ -120,6 +120,19 @@ biopython = "*"
 numpy = "*"
 pandas = "*"
 
+# GOATOOLS owns GO parsing and enrichment statistics; this environment only
+# manages its upstream CLI independently of the generic Python/TxGNN stacks.
+[tool.pixi.feature.goatools.dependencies]
+python = "3.12.*"
+
+[tool.pixi.feature.goatools.pypi-dependencies]
+goatools = "==1.6.5"
+# GOATOOLS 1.6.5 imports sandbox.stats.multicomp.multipletests, removed in 0.15.
+statsmodels = "==0.14.6"
+
+[tool.pixi.feature.goatools.tasks]
+goatools = 'cd "$INIT_CWD" && goatools'
+
 [tool.pixi.feature.r.dependencies]
 cxx-compiler = "*"
 fortran-compiler = "*"
@@ -301,6 +314,7 @@ meeko = "*"
 vina-meeko = 'cd "$INIT_CWD" && vina'
 
 [tool.pixi.environments]
+goatools = { features = ["goatools"], no-default-feature = true }
 diffdock = { features = ["diffdock"], no-default-feature = true }
 txgnn = { features = ["txgnn"], no-default-feature = true }
 autosite = { features = ["autosite"], no-default-feature = true }
