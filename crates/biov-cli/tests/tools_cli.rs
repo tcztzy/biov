@@ -23,6 +23,16 @@ fn native_cli_setup_inspection_literal_argv_and_status() {
         "unavailable"
     );
     assert!(!root.exists());
+    let unavailable_cwd = dir.path().join("unavailable");
+    let bad_cwd = run(&[
+        "tools",
+        "exec",
+        "--cwd",
+        unavailable_cwd.to_str().unwrap(),
+        "goatools",
+    ]);
+    assert_eq!(bad_cwd.status.code(), Some(2));
+    assert!(!root.exists());
     let missing = run(&["tools", "exec", "--no-install", "goatools", "--help"]);
     assert_eq!(missing.status.code(), Some(2));
     assert!(!root.exists());

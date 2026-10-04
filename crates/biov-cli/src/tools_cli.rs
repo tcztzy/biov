@@ -64,6 +64,11 @@ pub fn run(args: impl IntoIterator<Item = OsString>) -> Result<ExitCode, String>
     if action != "exec" && !native.is_empty() {
         return Err("unexpected argument after tool name".into());
     }
+    if let Some(cwd) = &cwd {
+        if !cwd.is_dir() {
+            return Err("execution cwd must be an existing directory".into());
+        }
+    }
     let store = ToolStore::from_environment(root, pixi)?;
     if action == "inspect" {
         let record = store.inspect(&name)?;
@@ -95,4 +100,4 @@ pub fn run(args: impl IntoIterator<Item = OsString>) -> Result<ExitCode, String>
     Ok(ExitCode::from(status.code().unwrap_or(1) as u8))
 }
 
-pub const HELP: &str = "BioV native locked tools (initial Linux-64 slice)\n\nUsage:\n  biov-rs tools setup [--environment-root DIR] [--pixi FILE] samtools|goatools\n  biov-rs tools inspect [--environment-root DIR] [--pixi FILE] samtools|goatools\n  biov-rs tools exec [--no-install] [--environment-root DIR] [--pixi FILE] [--cwd DIR] samtools|goatools [ARGS]...\n\nOptions precede the tool name; all later arguments pass unchanged to the\nupstream entry point. BIOV_ENVIRONMENT_ROOT and BIOV_PIXI_BIN are supported.\nA matching existing Pixi 0.81.0 is required; no manager download, source switch,\nPATH mutation, shell profile change or SSH execution occurs. Default exec\nperforms locked setup when no matching native setup receipt exists. --no-install\nrequires that receipt and never provisions. Inspect reports recorded setup,\nnot independent package integrity or scientific validation. Update/removal/cache\ncleanup, other tools and project manifests remain outside this migration slice.";
+pub const HELP: &str = "BioV native locked tools (initial Linux-64 slice)\n\nUsage:\n  biov-rs tools setup [--environment-root DIR] [--pixi FILE] samtools|goatools\n  biov-rs tools inspect [--environment-root DIR] [--pixi FILE] samtools|goatools\n  biov-rs tools exec [--no-install] [--environment-root DIR] [--pixi FILE] [--cwd DIR] samtools|goatools [ARGS]...\n\nOptions precede the tool name; all later arguments pass unchanged to the\nupstream entry point. BIOV_ENVIRONMENT_ROOT and BIOV_PIXI_BIN are supported.\nA matching existing Pixi 0.81.0 is required; no manager download, source switch,\nglobal PATH mutation, shell profile change or SSH execution occurs. Default exec\nperforms locked setup/repair when the recorded executable is unavailable. --no-install\nrequires that receipt and never provisions. Inspect reports recorded setup,\nnot independent package integrity or scientific validation. Native paths are literal;\nquoted ~ is not expanded. Pre-launch errors return 2; a tool may also return 2.\nUpdate/removal/cache\ncleanup, other tools and project manifests remain outside this migration slice.";

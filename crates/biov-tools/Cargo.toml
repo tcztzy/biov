@@ -5,6 +5,9 @@ edition.workspace = true
 rust-version.workspace = true
 license.workspace = true
 description = "Bounded locked local biological tool execution"
+# Embedded assets are authoritative workspace files; standalone registry packaging
+# remains a separate release gate. Build from the complete checkout or sdist.
+publish = false
 
 [dependencies]
 serde = { version = "=1.0.229", features = ["derive"] }

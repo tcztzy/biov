@@ -89,7 +89,7 @@ fn no_install_cannot_create_workspace_or_run_unrecorded_prefix() {
     assert!(f.store.execute("samtools", &[], None).is_err());
     assert!(!f.store.workspace().exists());
     assert!(!f.log().contains("\"install\""));
-    assert!(!f.log().contains("\"run\""));
+    assert!(!f.dir.path().join("native.json").exists());
 }
 #[test]
 fn changed_manager_lock_receipt_or_prefix_never_becomes_a_ready_hit() {
@@ -114,7 +114,7 @@ fn changed_manager_lock_receipt_or_prefix_never_becomes_a_ready_hit() {
     fs::write(f.store.workspace().join("pixi.lock"), "modified").unwrap();
     assert!(f.store.execute("samtools", &[], None).is_err());
     assert!(f.store.setup("samtools").is_err());
-    assert!(!f.log().contains("\"run\""));
+    assert!(!f.dir.path().join("native.json").exists());
 }
 #[test]
 fn failed_setup_and_busy_workspace_preserve_data_without_ready_claims() {
@@ -124,7 +124,7 @@ fn failed_setup_and_busy_workspace_preserve_data_without_ready_claims() {
         .store
         .setup("goatools")
         .unwrap_err()
-        .contains("setup failed"));
+        .contains("install failed"));
     assert_eq!(f.store.inspect("goatools").unwrap().status, "unavailable");
     fs::remove_file(f.dir.path().join("fail-install")).unwrap();
     f.store.setup("goatools").unwrap();
@@ -240,12 +240,129 @@ fn cached_execution_rejects_later_prefix_redirect_and_symlink() {
         .unwrap_err()
         .contains("outside"));
     assert!(f.store.setup("samtools").unwrap_err().contains("outside"));
-    assert!(!f.log().contains("\"run\""));
+    assert!(!f.dir.path().join("native.json").exists());
     fs::remove_file(f.dir.path().join("redirect")).unwrap();
     let outside = f.dir.path().join("outside-prefix");
     fs::rename(&receipt.prefix, &outside).unwrap();
     std::os::unix::fs::symlink(&outside, &receipt.prefix).unwrap();
     assert!(f.store.execute("samtools", &[], None).is_err());
     assert_eq!(f.store.inspect("samtools").unwrap().status, "unavailable");
-    assert!(!f.log().contains("\"run\""));
+    assert!(!f.dir.path().join("native.json").exists());
+}
+
+#[test]
+fn missing_recorded_entrypoint_is_repaired_from_lock_and_failure_never_claims_ready() {
+    let f = Fixture::new();
+    let receipt = f.store.setup("samtools").unwrap();
+    let executable = receipt.prefix.join("bin/samtools");
+    fs::remove_file(&executable).unwrap();
+    assert_eq!(f.store.inspect("samtools").unwrap().status, "unavailable");
+    assert!(f.store.execute("samtools", &[], None).is_err());
+    let repaired = f.store.setup("samtools").unwrap();
+    assert_eq!(repaired.prefix, receipt.prefix);
+    assert!(executable.is_file());
+    assert_eq!(
+        f.store.execute("samtools", &[], None).unwrap().code(),
+        Some(37)
+    );
+    assert!(f
+        .log()
+        .lines()
+        .any(|line| line.starts_with("[\"reinstall\"")));
+    fs::remove_file(executable).unwrap();
+    fs::write(f.dir.path().join("fail-reinstall"), "yes").unwrap();
+    assert!(f
+        .store
+        .setup("samtools")
+        .unwrap_err()
+        .contains("reinstall failed"));
+    assert_eq!(f.store.inspect("samtools").unwrap().status, "unavailable");
+    assert!(!f
+        .store
+        .workspace()
+        .join(".biov-native-samtools.json")
+        .exists());
+}
+
+#[test]
+fn typed_activation_is_checked_before_exact_native_launch() {
+    let f = Fixture::new();
+    f.store.setup("goatools").unwrap();
+    fs::write(f.dir.path().join("activation-redirect"), "yes").unwrap();
+    assert!(f
+        .store
+        .execute("goatools", &[], None)
+        .unwrap_err()
+        .contains("activation does not match"));
+    assert!(!f.dir.path().join("native.json").exists());
+}
+
+#[test]
+fn tilde_is_a_literal_path_component() {
+    let f = Fixture::new();
+    let literal = ToolStore::new(
+        f.dir.path().join("~/environments"),
+        f.dir.path().join("fake-pixi"),
+    )
+    .unwrap();
+    assert!(literal.workspace().starts_with(f.dir.path().join("~")));
+}
+
+#[test]
+fn missing_executable_under_redirected_bin_never_triggers_repair() {
+    let f = Fixture::new();
+    let receipt = f.store.setup("samtools").unwrap();
+    let original_receipt =
+        fs::read(f.store.workspace().join(".biov-native-samtools.json")).unwrap();
+    fs::rename(
+        receipt.prefix.join("bin"),
+        receipt.prefix.join("original-bin"),
+    )
+    .unwrap();
+    let outside = f.dir.path().join("outside-bin");
+    fs::create_dir(&outside).unwrap();
+    std::os::unix::fs::symlink(&outside, receipt.prefix.join("bin")).unwrap();
+    assert!(f
+        .store
+        .setup("samtools")
+        .unwrap_err()
+        .contains("bin directory is redirected"));
+    assert_eq!(
+        fs::read(f.store.workspace().join(".biov-native-samtools.json")).unwrap(),
+        original_receipt
+    );
+    assert!(!outside.join("samtools").exists());
+    assert!(!f.log().contains("\"reinstall\""));
+    fs::remove_file(f.store.workspace().join(".biov-native-samtools.json")).unwrap();
+    assert!(f
+        .store
+        .setup("samtools")
+        .unwrap_err()
+        .contains("bin directory is redirected"));
+    assert_eq!(
+        f.log()
+            .lines()
+            .filter(|line| line.starts_with("[\"install\""))
+            .count(),
+        1
+    );
+}
+
+#[test]
+fn unrecorded_prefix_never_installs_through_an_outside_entrypoint_symlink() {
+    let f = Fixture::new();
+    let receipt = f.store.setup("samtools").unwrap();
+    fs::remove_file(f.store.workspace().join(".biov-native-samtools.json")).unwrap();
+    fs::remove_file(receipt.prefix.join("bin/samtools")).unwrap();
+    let outside = f.dir.path().join("outside-program");
+    std::os::unix::fs::symlink(&outside, receipt.prefix.join("bin/samtools")).unwrap();
+    assert!(f.store.setup("samtools").is_err());
+    assert!(!outside.exists());
+    assert_eq!(
+        f.log()
+            .lines()
+            .filter(|line| line.starts_with("[\"install\""))
+            .count(),
+        1
+    );
 }

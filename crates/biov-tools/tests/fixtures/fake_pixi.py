@@ -3,6 +3,7 @@
 
 # ruff: noqa: T201, S101 - fixture deliberately exercises native stdio and assertions
 import json
+import os
 import pathlib
 import sys
 
@@ -41,13 +42,25 @@ if args[0] == "info":
     sys.exit(0)
 name = args[args.index("--environment") + 1]
 prefix = manifest.parent / ".pixi" / "envs" / name
-if args[0] == "install":
-    if (home / "fail-install").exists():
+if args[0] in {"install", "reinstall"}:
+    if (home / "fail-install").exists() or (
+        args[0] == "reinstall" and (home / "fail-reinstall").exists()
+    ):
         sys.exit(23)
     assert "--locked" in args
+    if args[0] == "install" and (prefix / "conda-meta" / "pixi").exists():
+        sys.exit(0)
     (prefix / "conda-meta").mkdir(parents=True, exist_ok=True)
     (prefix / "bin").mkdir(exist_ok=True)
-    (prefix / "bin" / name).write_text("#!/bin/sh\nexit 0\n")
+    native_program = f"""#!/usr/bin/env python3
+import json, pathlib, sys
+home = pathlib.Path({str(home)!r})
+(home / 'native.json').write_text(json.dumps({{'argv': [str(pathlib.Path(__file__)), *sys.argv[1:]], 'cwd': str(pathlib.Path.cwd())}}))
+print('native stdout')
+print('native stderr', file=sys.stderr)
+sys.exit(37)
+"""
+    (prefix / "bin" / name).write_text(native_program)
     (prefix / "bin" / name).chmod(0o755)
     (prefix / "conda-meta" / "pixi").write_text(
         json.dumps(
@@ -61,13 +74,24 @@ if args[0] == "install":
         )
     )
     sys.exit(0)
-if args[0] == "run":
-    assert "--as-is" in args
-    native = args[args.index("--") + 1 :]
-    (home / "native.json").write_text(
-        json.dumps({"argv": native, "cwd": str(pathlib.Path.cwd())})
+if args[0] == "shell-hook":
+    assert "--as-is" in args and "--json" in args
+    activation_prefix = (
+        home / "outside" if (home / "activation-redirect").exists() else prefix
     )
-    print("native stdout")
-    print("native stderr", file=sys.stderr)
-    sys.exit(37)
+    print(
+        json.dumps(
+            {
+                "environment_variables": {
+                    "CONDA_PREFIX": str(activation_prefix),
+                    "PIXI_PROJECT_MANIFEST": str(manifest),
+                    "PIXI_PROJECT_ROOT": str(manifest.parent),
+                    "PIXI_ENVIRONMENT_NAME": name,
+                    "PATH": str(prefix / "bin") + os.pathsep + os.environ["PATH"],
+                },
+                "activation_scripts": [],
+            }
+        )
+    )
+    sys.exit(0)
 sys.exit(99)

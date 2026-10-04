@@ -4,6 +4,7 @@ use fs4::fs_std::FileExt;
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use std::{
+    collections::BTreeMap,
     ffi::OsString,
     fs::{self, File, OpenOptions},
     io::{Read, Write},
@@ -143,18 +144,28 @@ impl ToolStore {
         Ok(())
     }
     fn capture(&self, args: impl IntoIterator<Item = OsString>) -> Result<String, String> {
-        let mut child = Command::new(&self.pixi)
+        self.capture_in(args, None)
+    }
+    fn capture_in(
+        &self,
+        args: impl IntoIterator<Item = OsString>,
+        cwd: Option<&Path>,
+    ) -> Result<String, String> {
+        let mut command = Command::new(&self.pixi);
+        command
             .args(args)
             .stdin(Stdio::null())
             .stdout(Stdio::piped())
-            .stderr(Stdio::inherit())
-            .spawn()
-            .map_err(|e| {
-                format!(
-                    "cannot run Pixi {:?}: {e}; install Pixi {PIXI_VERSION} or set BIOV_PIXI_BIN",
-                    self.pixi
-                )
-            })?;
+            .stderr(Stdio::inherit());
+        if let Some(cwd) = cwd {
+            command.current_dir(cwd);
+        }
+        let mut child = command.spawn().map_err(|e| {
+            format!(
+                "cannot run Pixi {:?}: {e}; install Pixi {PIXI_VERSION} or set BIOV_PIXI_BIN",
+                self.pixi
+            )
+        })?;
         let mut bytes = Vec::new();
         let result = child
             .stdout
@@ -169,7 +180,7 @@ impl ToolStore {
         }
         let status = child.wait().map_err(|e| e.to_string())?;
         if !status.success() {
-            return Err(format!("Pixi inspection failed with {status}"));
+            return Err(format!("Pixi query failed with {status}"));
         }
         String::from_utf8(bytes).map_err(|_| "Pixi inspection output is not UTF-8".into())
     }
@@ -342,7 +353,49 @@ impl ToolStore {
             prefix_marker_sha256,
         })
     }
+    fn entrypoint_parent(&self, prefix: &Path) -> Result<(), String> {
+        if canonical_future_path(prefix)? != prefix {
+            return Err("selected installed prefix is redirected".into());
+        }
+        let bin = prefix.join("bin");
+        if canonical_future_path(&bin)? != bin {
+            return Err("selected executable bin directory is redirected".into());
+        }
+        match fs::metadata(&bin) {
+            Ok(metadata) if !metadata.is_dir() => {
+                Err("selected executable bin path is not a directory".into())
+            }
+            Ok(_) => Ok(()),
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(()),
+            Err(error) => Err(format!(
+                "cannot inspect selected executable bin directory: {error}"
+            )),
+        }
+    }
+    fn entrypoint_location(&self, prefix: &Path, name: &str) -> Result<(), String> {
+        self.entrypoint_parent(prefix)?;
+        let entrypoint = prefix.join("bin").join(name);
+        match fs::symlink_metadata(&entrypoint) {
+            Ok(metadata) if metadata.file_type().is_symlink() => {
+                let target = fs::canonicalize(&entrypoint).map_err(|e| {
+                    format!("selected executable symlink is unavailable or unsafe: {e}")
+                })?;
+                if !target.starts_with(prefix) {
+                    return Err(
+                        "selected executable symlink resolves outside the installed prefix".into(),
+                    );
+                }
+                Ok(())
+            }
+            Ok(_) => Ok(()),
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(()),
+            Err(error) => Err(format!(
+                "cannot inspect selected executable location: {error}"
+            )),
+        }
+    }
     fn entrypoint(&self, receipt: &Receipt) -> Result<PathBuf, String> {
+        self.entrypoint_location(&receipt.prefix, &receipt.environment)?;
         let entrypoint = receipt.prefix.join("bin").join(&receipt.environment);
         let actual = fs::canonicalize(&entrypoint).map_err(|e| format!("selected installed executable is unavailable: {e}; run tools setup after inspecting the prefix"))?;
         let prefix = fs::canonicalize(&receipt.prefix).map_err(|e| e.to_string())?;
@@ -396,37 +449,32 @@ impl ToolStore {
             receipt,
         })
     }
-    pub fn setup(&self, name: &str) -> Result<Receipt, String> {
-        Self::supported(name)?;
-        self.check_manager()?;
-        if let Ok(_guard) = self.operation_lock(false, false) {
-            if self.verify_workspace().is_ok() {
-                if let Ok(receipt) = self.read_receipt(name) {
-                    if self.prefix(name)? != receipt.prefix {
-                        return Err("current Pixi prefix differs from native setup receipt".into());
-                    }
-                    self.entrypoint(&receipt)?;
-                    return Ok(receipt);
-                }
-            }
+    fn missing_entrypoint(&self, prefix: &Path, name: &str) -> Result<bool, String> {
+        self.entrypoint_location(prefix, name)?;
+        match fs::symlink_metadata(prefix.join("bin").join(name)) {
+            Ok(_) => Ok(false),
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(true),
+            Err(error) => Err(format!(
+                "cannot inspect selected installed executable: {error}"
+            )),
         }
-        let _guard = self.operation_lock(true, true)?;
-        self.publish_workspace()?;
-        if let Ok(receipt) = self.read_receipt(name) {
-            self.entrypoint(&receipt)?;
-            return Ok(receipt);
+    }
+    fn reusable_receipt(&self, name: &str) -> Result<Option<Receipt>, String> {
+        let receipt = match self.read_receipt(name) {
+            Ok(receipt) => receipt,
+            Err(_) => return Ok(None),
+        };
+        if self.prefix(name)? != receipt.prefix {
+            return Err("current Pixi prefix differs from native setup receipt".into());
         }
-        // Invalidate before an in-place native-manager operation: a failed or
-        // interrupted install must never retain a successful readiness claim.
-        match fs::remove_file(self.receipt_path(name)) {
-            Ok(()) => (),
-            Err(e) if e.kind() == std::io::ErrorKind::NotFound => (),
-            Err(e) => return Err(e.to_string()),
+        match self.entrypoint(&receipt) {
+            Ok(_) => Ok(Some(receipt)),
+            Err(_) if self.missing_entrypoint(&receipt.prefix, name)? => Ok(None),
+            Err(error) => Err(error),
         }
-        // --no-config still permits project-local Pixi configuration. Reject
-        // redirected prefixes before install can write outside this workspace.
-        let prefix = self.prefix(name)?;
-        let mut args = self.control_args("install", name);
+    }
+    fn install(&self, action: &str, name: &str) -> Result<(), String> {
+        let mut args = self.control_args(action, name);
         args.push("--locked".into());
         let status = Command::new(&self.pixi)
             .args(args)
@@ -436,13 +484,49 @@ impl ToolStore {
             .status()
             .map_err(|e| e.to_string())?;
         if !status.success() {
-            return Err(format!("locked Pixi setup failed with {status}; native readiness is unavailable; existing files were not removed by BioV"));
+            return Err(format!("locked Pixi {action} failed with {status}; native readiness is unavailable; existing files were not removed by BioV"));
         }
-        self.verify_workspace()?;
+        self.verify_workspace()
+    }
+    pub fn setup(&self, name: &str) -> Result<Receipt, String> {
+        Self::supported(name)?;
+        self.check_manager()?;
+        if let Ok(_guard) = self.operation_lock(false, false) {
+            if self.verify_workspace().is_ok() {
+                if let Some(receipt) = self.reusable_receipt(name)? {
+                    return Ok(receipt);
+                }
+            }
+        }
+        let _guard = self.operation_lock(true, true)?;
+        self.publish_workspace()?;
+        // Apply identical reuse/routing checks after obtaining the exclusive
+        // lock: another setup could have completed since the shared fast path.
+        if let Some(receipt) = self.reusable_receipt(name)? {
+            return Ok(receipt);
+        }
+        let prefix = self.prefix(name)?;
+        self.entrypoint_location(&prefix, name)?;
+        match fs::remove_file(self.receipt_path(name)) {
+            Ok(()) => (),
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => (),
+            Err(e) => return Err(e.to_string()),
+        }
+        self.install("install", name)?;
         if self.prefix(name)? != prefix {
             return Err("Pixi prefix changed during setup".into());
         }
+        // A normal manager install can regard an existing package record as
+        // current even after its executable was removed. Only a demonstrably
+        // absent entry point triggers explicit locked manager reinstallation.
+        if self.missing_entrypoint(&prefix, name)? {
+            self.install("reinstall", name)?;
+            if self.prefix(name)? != prefix {
+                return Err("Pixi prefix changed during repair".into());
+            }
+        }
         let receipt = self.expected_receipt(name, prefix)?;
+        self.entrypoint(&receipt)?;
         let mut staged =
             tempfile::NamedTempFile::new_in(self.workspace()).map_err(|e| e.to_string())?;
         serde_json::to_writer_pretty(&mut staged, &receipt).map_err(|e| e.to_string())?;
@@ -451,12 +535,50 @@ impl ToolStore {
         staged
             .persist(self.receipt_path(name))
             .map_err(|e| e.to_string())?;
-        let receipt = self.read_receipt(name)?;
-        self.entrypoint(&receipt)?;
-        Ok(receipt)
+        self.read_receipt(name)
     }
-    /// Pixi activates the environment, then runs its exact prefix executable.
-    /// No named task interpolation or selected-entry host-PATH fallback occurs.
+    fn activation(
+        &self,
+        name: &str,
+        receipt: &Receipt,
+        cwd: Option<&Path>,
+    ) -> Result<BTreeMap<String, String>, String> {
+        let mut args = self.control_args("shell-hook", name);
+        args.extend(["--as-is".into(), "--json".into()]);
+        let output = self.capture_in(args, cwd)?;
+        #[derive(Deserialize)]
+        struct Activation {
+            environment_variables: BTreeMap<String, String>,
+        }
+        let activation: Activation = serde_json::from_str(&output)
+            .map_err(|e| format!("invalid Pixi activation JSON: {e}"))?;
+        let variables = activation.environment_variables;
+        for (key, value) in &variables {
+            if key.is_empty() || key.contains(['=', '\0']) || value.contains('\0') {
+                return Err("Pixi activation contains an invalid environment variable".into());
+            }
+        }
+        if variables.get("CONDA_PREFIX").map(String::as_str) != receipt.prefix.to_str()
+            || variables.get("PIXI_ENVIRONMENT_NAME").map(String::as_str) != Some(name)
+            || variables.get("PIXI_PROJECT_MANIFEST").map(String::as_str)
+                != self.workspace().join("pyproject.toml").to_str()
+            || variables.get("PIXI_PROJECT_ROOT").map(String::as_str) != self.workspace().to_str()
+        {
+            return Err(
+                "Pixi activation does not match the selected bundled prefix/environment/manifest"
+                    .into(),
+            );
+        }
+        let path = variables
+            .get("PATH")
+            .ok_or("Pixi activation did not report PATH")?;
+        if std::env::split_paths(path).next() != Some(receipt.prefix.join("bin")) {
+            return Err("Pixi activation PATH does not start with the selected prefix/bin".into());
+        }
+        Ok(variables)
+    }
+    /// Apply the manager's typed JSON activation, then launch the exact prefix
+    /// executable with OS argv. No Pixi task/command-string parsing occurs.
     pub fn execute(
         &self,
         name: &str,
@@ -465,7 +587,7 @@ impl ToolStore {
     ) -> Result<ExitStatus, String> {
         Self::supported(name)?;
         if arguments.iter().any(|argument| argument.to_str().is_none()) {
-            return Err("Pixi native arguments must be UTF-8".into());
+            return Err("native tool arguments must be UTF-8".into());
         }
         self.check_manager()?;
         let _guard = self.operation_lock(false, false)?;
@@ -475,27 +597,25 @@ impl ToolStore {
             return Err("current Pixi prefix differs from native setup receipt".into());
         }
         let entrypoint = self.entrypoint(&receipt)?;
-        let mut args = self.control_args("run", name);
-        args.push("--as-is".into());
-        args.push("--executable".into());
-        args.push("--".into());
-        args.push(entrypoint.into_os_string());
-        args.extend_from_slice(arguments);
-        let mut command = Command::new(&self.pixi);
-        command
-            .args(args)
-            .stdin(Stdio::inherit())
-            .stdout(Stdio::inherit())
-            .stderr(Stdio::inherit());
         if let Some(cwd) = cwd {
             if !cwd.is_dir() {
                 return Err("execution cwd must be an existing directory".into());
             }
+        }
+        let activation = self.activation(name, &receipt, cwd)?;
+        let mut command = Command::new(entrypoint);
+        command
+            .args(arguments)
+            .envs(activation)
+            .stdin(Stdio::inherit())
+            .stdout(Stdio::inherit())
+            .stderr(Stdio::inherit());
+        if let Some(cwd) = cwd {
             command.current_dir(cwd);
         }
         command
             .status()
-            .map_err(|e| format!("Pixi execution failed: {e}"))
+            .map_err(|e| format!("native executable launch failed: {e}"))
     }
 }
 
@@ -512,3 +632,6 @@ fn canonical_future_path(path: &Path) -> Result<PathBuf, String> {
         Err(error) => Err(format!("cannot resolve tool root: {error}")),
     }
 }
+
+#[cfg(all(test, target_os = "linux", target_arch = "x86_64"))]
+mod real_pixi_tests;
