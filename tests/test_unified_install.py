@@ -19,7 +19,7 @@ from pathlib import Path
 
 import pytest
 
-BINARY = os.environ.get("BIOV_TEST_BINARY")
+BINARY = os.environ.get("BIOV_TEST_BINARY", "")
 pytestmark = pytest.mark.skipif(
     not BINARY, reason="requires a separately installed native BioV tool"
 )
@@ -79,12 +79,13 @@ def test_python_run_uses_paired_interpreter_and_preserves_argv_status(tmp_path):
     assert not (tmp_path / "must-not-exist").exists()
 
 
-def _read_rpc(process):
+def _read_rpc(process: subprocess.Popen[str]) -> dict:
     """Read an actual protocol response with a bounded wait.
 
     Returns:
         The complete JSON-RPC response.
     """
+    assert process.stdout is not None
     selector = selectors.DefaultSelector()
     try:
         selector.register(process.stdout, selectors.EVENT_READ)
@@ -121,6 +122,7 @@ def test_distinct_legacy_and_native_mcp_stdio(
         stderr=subprocess.PIPE,
         text=True,
     )
+    assert process.stdin is not None and process.stdout is not None
     try:
         initialize = {
             "jsonrpc": "2.0",

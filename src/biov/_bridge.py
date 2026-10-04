@@ -29,7 +29,7 @@ def validate_pairing(binary: Path) -> None:
     for entry in installed.files or ():
         if entry.name not in {"biov", "biov.exe"}:
             continue
-        candidate = installed.locate_file(entry)
+        candidate = Path(str(installed.locate_file(entry)))
         try:
             if candidate.resolve(strict=True) == expected:
                 return
