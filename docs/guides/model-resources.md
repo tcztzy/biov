@@ -296,10 +296,17 @@ all 869 bytes and read the complete native configuration/tokenizer JSON. The
 source-built workspace also passed Clippy with warnings denied. Strict MkDocs
 and all nine pre-commit hooks passed. The Linux wheel/sdist boundary checks and
 release-wheel rebuild from the frozen source distribution passed; the unpacked
-sdist's complete Rust suite passed (241 tests, including the doctest; three
-explicit opt-in real-tool tests ignored). Final source/sdist Rust runs used one
-test thread after intermittent `ETXTBSY` in unchanged temporary-executable router
-fixtures on this cloud filesystem; an earlier ordinary parallel full run passed.
+sdist's complete Rust suite passed (243 tests, including the doctest; three
+explicit opt-in real-tool tests ignored). The first CI unpacked-sdist run and earlier parallel cloud runs exposed
+`ETXTBSY` in temporary executable fixtures. The fixture-only correction prepares
+all manager/native/interpreter scripts behind a common barrier before a harness
+starts subprocesses, then reuses immutable templates. A controlled fork example
+reproduces an inherited close-on-exec writer blocking execution after its parent
+closes the writer; the exact CI descriptor holder was not traced. Final default
+parallel workspace tests and Clippy pass, without retries, sleeps or test-thread
+serialization. Fork/exec descriptor behavior is documented in the
+[Linux fork manual](https://man7.org/linux/man-pages/man2/fork.2.html) and
+[Linux execve manual](https://man7.org/linux/man-pages/man2/execve.2.html).
 
 Both the independently installed production wheel and the rebuilt-sdist wheel
 passed 507 installed acceptance cases outside the checkout, with one separate

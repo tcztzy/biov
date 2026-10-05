@@ -14,6 +14,19 @@ fn fixture() -> (tempfile::TempDir, ToolStore, PathBuf, PathBuf) {
 }
 
 #[test]
+fn either_manager_access_prepares_both_immutable_protocol_scripts() {
+    let directory = support::prepare();
+    assert_eq!(
+        fs::read(directory.path().join("fixture.py")).unwrap(),
+        include_bytes!("fixtures/fake_pixi.py")
+    );
+    assert_eq!(
+        fs::read(directory.path().join("global.py")).unwrap(),
+        include_bytes!("fixtures/fake_global.py")
+    );
+}
+
+#[test]
 fn empty_list_does_not_require_managers_or_create_roots() {
     let (dir, store, uv, _) = fixture();
     fs::remove_file(dir.path().join("fake-global-pixi")).unwrap();
