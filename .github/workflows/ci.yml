@@ -107,6 +107,13 @@ jobs:
           /tmp/biov-wheel/bin/python -c 'import biov; assert biov.reverse_complements(["acgtryn", None, ""], kind="dna") == ["NRYACGT", None, ""]'
           /tmp/biov-wheel/bin/biov --help
           /tmp/biov-wheel/bin/pytest "$GITHUB_WORKSPACE/tests/test_native_sequence.py" "$GITHUB_WORKSPACE/tests/test_native_metrics.py" -q
+      - name: Verify selected model resources and real public configuration files
+        run: |
+          cd /tmp
+          BIOV_TEST_BINARY=/tmp/biov-wheel/bin/biov \
+            BIOV_TEST_REAL_MODELS=1 \
+            BIOV_TEST_REAL_UV="$(command -v uv)" \
+            /tmp/biov-wheel/bin/pytest "$GITHUB_WORKSPACE/tests/test_model_resources.py" -q
       - name: Verify unified uv tool installation outside checkout
         run: |
           export UV_TOOL_DIR=/tmp/biov-uv-tools
@@ -135,6 +142,9 @@ jobs:
           uv pip install --python /tmp/biov-wheel/bin/python --reinstall /tmp/biov-source-wheels/*.whl biopython==1.88
           cd /tmp
           /tmp/biov-wheel/bin/pytest "$GITHUB_WORKSPACE/tests/test_native_sequence.py" "$GITHUB_WORKSPACE/tests/test_native_metrics.py" -q
+
+          BIOV_TEST_BINARY=/tmp/biov-wheel/bin/biov \
+            /tmp/biov-wheel/bin/pytest "$GITHUB_WORKSPACE/tests/test_model_resources.py" -q
 
       - name: Verify rebuilt source wheel through uv tool
         run: |

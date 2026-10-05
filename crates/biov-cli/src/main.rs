@@ -1,6 +1,7 @@
 //! Thin native command-line adapter. MCP exclusively owns stdout while serving;
 //! one-shot local commands write a single bounded JSON result there instead.
 mod mcp;
+mod model_cli;
 mod prepared_cli;
 mod python_bridge;
 mod storage_cli;
@@ -13,7 +14,7 @@ use biov_prepared::PreparedStore;
 use biov_storage::NativeStore;
 use rmcp::{transport::stdio, ServiceExt};
 
-const HELP: &str = "BioV: native lifecycle, storage and analysis with installed Python capabilities\n\nUsage:\n  biov install [options] <tool>\n  biov list [options]\n  biov uninstall [options] <tool>\n  biov tools inspect|exec ...\n  biov storage register --store-root DIR --source-root DIR --request-file JSON\n  biov storage resolve --store-root DIR --request-file JSON\n  biov prepared fasta --store-root DIR --request-file JSON\n  biov mcp\n  biov mcp-native --data-root DIR --output-root DIR [--store-root DIR]\n  biov python <legacy command> ...\n  biov analyze|inspect-analysis|pixi|exec|run|update ...\n  biov [--config FILE] <Python-backed command> ...\n  biov --help\n  biov --version\n\ninstall, list, uninstall, tools, storage, prepared and mcp-native use Rust.\nThe existing mcp, analyze, inspect-analysis, pixi, exec, run and update\ncommands use the Python interpreter paired with this installed BioV package.\nLegacy setup is available as `biov python setup`.\nUse `<command> --help` for its options. Install BioV with `uv tool install biov`\nto make both runtimes available; native routing does not load Python; GOATOOLS installation invokes uv with the paired interpreter.\n\nBoth MCP routes use JSON-RPC over stdio. Native MCP requires explicit trusted\ndata/output roots and optionally a native snapshot store. Help, diagnostics and\nerrors go to stderr; MCP exclusively owns stdout while serving.";
+const HELP: &str = "BioV: native lifecycle, storage and analysis with installed Python capabilities\n\nUsage:\n  biov install [options] <tool>\n  biov list [options]\n  biov uninstall [options] <tool>\n  biov tools inspect|exec ...\n  biov model download|inspect ...\n  biov storage register --store-root DIR --source-root DIR --request-file JSON\n  biov storage resolve --store-root DIR --request-file JSON\n  biov prepared fasta --store-root DIR --request-file JSON\n  biov mcp\n  biov mcp-native --data-root DIR --output-root DIR [--store-root DIR]\n  biov python <legacy command> ...\n  biov analyze|inspect-analysis|pixi|exec|run|update ...\n  biov [--config FILE] <Python-backed command> ...\n  biov --help\n  biov --version\n\ninstall, list, uninstall, tools, model, storage, prepared and mcp-native use Rust.\nThe existing mcp, analyze, inspect-analysis, pixi, exec, run and update\ncommands use the Python interpreter paired with this installed BioV package.\nLegacy setup is available as `biov python setup`.\nUse `<command> --help` for its options. Install BioV with `uv tool install biov`\nto make both runtimes available; native routing does not load Python; GOATOOLS installation invokes uv with the paired interpreter.\n\nBoth MCP routes use JSON-RPC over stdio. Native MCP requires explicit trusted\ndata/output roots and optionally a native snapshot store. Help, diagnostics and\nerrors go to stderr; MCP exclusively owns stdout while serving.";
 
 #[derive(Debug, PartialEq, Eq)]
 enum Command {
@@ -155,6 +156,9 @@ async fn main() -> ExitCode {
     let first = raw.first().map(OsString::as_os_str);
     if first.is_some_and(|value| value == "tools") {
         return tool_result(tools_cli::run(raw.into_iter().skip(1)));
+    }
+    if first.is_some_and(|value| value == "model") {
+        return tool_result(model_cli::run(raw.into_iter().skip(1)));
     }
     if first.is_some_and(|value| value == "install" || value == "list" || value == "uninstall") {
         return tool_result(tools_cli::run(raw));

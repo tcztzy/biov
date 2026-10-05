@@ -64,9 +64,42 @@ in the wrapper README, not hidden behind BioV or an undocumented catalog crawl.
   verified reuse and independent moved-closure reading. Output-affecting code
   changes require an explicit indexing-contract revision; do not claim general
   transformation support from this one format-specific operation
-- No automatic cache/import migration, downloads, GC or distributed deployment is
+- No automatic cache/import migration, native-store downloads, GC or distributed deployment is
   implied. Streaming file copies do not raise the native table route's independent
   64 MiB retained-data charge or establish large-data analytical execution
+
+## Selected model resource boundary
+
+The separate bounded model-file contract is SPEC D16 and
+`docs/guides/model-resources.md`. Keep model files as native data; official `hf`
+owns Hub access and uv owns fallback tool environments. This is not native-store
+hydration, a model runner or a general model cache manager.
+
+- Require a caller-supplied full 40-hex commit and 1–1,024 exact safe relative
+  filenames. No branch/tag resolution, glob/folder/whole-repository selection,
+  inferred model completeness or scientific meaning
+- Prefer compatible installed `hf`; an explicit incompatible selection fails.
+  Otherwise an existing uv supplies `huggingface-hub==2.1.1` with
+  `httpx2[socks]`, without Python download or a custom installation registry.
+  `--no-install` disables provisioning, not new-resource network access
+- Use a fresh sibling staging directory and the official client's exact-revision
+  explicit-file invocation. Verify every complete selected payload before Linux
+  atomic no-replace publication; preserve unrelated/concurrently created
+  destinations. Never adopt a pre-existing empty directory, overwrite or repair a
+  damaged resource, or fall back to stale local payloads after upstream failure
+- Keep native bytes/layouts and complete relative SHA-256 inventory with the
+  format-1 JSON/immutable README companions. Verify exact existing bundles
+  offline, preserving acquisition facts. Client cache metadata stays upstream
+  and is excluded; no historical path, BioV installation or live Hub is required
+  for the documented standard-library reader and complete-file summary
+- Distinguish local companion creation time from unknown original download time,
+  caller-supplied revision from independently authenticated revision, and checksum
+  consistency from authenticity or scientific QC. Do not decode weights,
+  unpickle, import downloaded Python or execute model code
+- Download publication initially supports Linux x86_64. Inspect has no download
+  platform gate; do not infer validated release targets. Retain failed unpublished
+  files with diagnostics. Other providers, MCP model tools, repair/update/removal,
+  GC, inference and automatic legacy-cache migration need separate contracts
 
 ## Project scope
 
@@ -161,4 +194,5 @@ sequence, identifier and artifact contracts. Report current, in-progress and
 planned scope separately; SPEC D0 applies throughout. D12 and T63–T68 state the
 local-table, paired-record reopen and portable-result scope, with validation and
 platform/client limitations explicit. D13 and T70–T71 separately define native-source
-storage and future semantic/derived layers.
+storage and future semantic/derived layers. D16/T74 independently track selected
+model-file acquisition, portable data and its actual acceptance scope.

@@ -11,6 +11,9 @@ D13 specifies the separate bounded native-source snapshot slice and its acceptan
 gates (T70–T71); five-source research does not imply five implemented adapters.
 D14 and T72 describe the bounded prepared RefSeq FASTA indexing extension.
 D15 and T73 connect one exact prepared sequence to bounded native metric tables.
+D16/T74 separately define selected Hugging Face model-file acquisition through
+official `hf`, portable companions and offline verification; real-client
+acceptance is tracked independently from fake-client delegation tests.
 
 ## §G GOAL
 **Non-negotiable: all cache and data designs must let an agent quickly understand
@@ -1063,11 +1066,134 @@ Feature: Exact native sequence metrics with complete portable table results
     Then existing data and all available handle slots are preserved
 ```
 
+D16: Model resources are explicitly selected provider-native files, not executable
+model installations. The bounded Rust `biov model download` route delegates
+acquisition to official Hugging Face `hf`; `biov model inspect` independently
+rehashes complete saved bytes offline. Require a bounded model repository name
+or namespace/name, caller-supplied full 40-hex Git commit, explicit normalized
+relative file selection and an explicit local directory. Do not resolve branch
+names/tags/abbreviated commits, expand globs/folders, select an implicit whole
+repository, decode weights, import downloaded Python or execute model code.
+`scope: selected_files` does not claim complete weights/shards/tokenizer,
+execution dependencies, licensing, scientific meaning or inference readiness.
+Initial download publication supports Linux x86_64. Inspection has no download
+platform gate; releases on other targets still require separate acceptance.
+
+Prefer a compatible installed `hf` from `--hf FILE`, `BIOV_HF_BIN` or `PATH`.
+Compatibility is a stable three-integer reported version >=0.34.0 and <3.0.0,
+with upstream download help exposing `--revision`, `--repo-type` and
+`--local-dir`. An explicit unavailable/incompatible client fails unchanged;
+implicit incompatibility may use an already available uv, selected through
+`--uv FILE`, `BIOV_UV_BIN` or `PATH`. The fallback is upstream
+`uv tool run --no-config --no-python-downloads --from huggingface-hub==2.1.1
+--with httpx2[socks] hf ...`, requiring the actual reported primary client
+version 2.1.1. uv owns on-demand environments and dependency resolution; no
+copied runner, persistent installation registry, full transitive lock, Python
+download, shell modification or bootstrap of missing uv is introduced.
+`--no-install` disables fallback provisioning, not network use for new resources.
+Version/help query stdout is bounded to 128 KiB per query.
+
+Resolve executable paths before acquisition and retain the caller's working
+directory, preserving upstream relative token/cache/tool settings. Pass an
+absolute fresh sibling staging directory to
+`hf download REPO FILE... --repo-type model --revision COMMIT --local-dir DIR`.
+Official `hf` owns existing authentication, transport, access restrictions and
+private native cache metadata. BioV adds no token argument or credential record.
+New downloads reject non-public `HF_ENDPOINT` and enabled
+`HUGGINGFACE_CO_STAGING`; alternative Hub sources require a separate contract.
+Do not reinterpret an upstream failure as success from stale local payloads.
+
+Reject symlinked destination ancestors, unrelated existing directories and
+unsafe selection paths before invoking the client. An exact existing resource
+is reused only after complete offline verification and repository/revision-string/
+sorted-selection equality; its companions and acquisition facts stay unchanged.
+Otherwise download into a fresh staging directory, require a successful official
+client invocation and the exact complete selected regular-file tree, hash payloads
+and write companions before Linux atomic no-replace publication. A concurrently
+created destination is preserved and this attempt fails, rather than adopting
+or replacing the winner. Retain failed unpublished staging files with their
+location in diagnostics; an incomplete-attempt note is not a successful resource.
+No overwrite/repair/update/removal/GC or SIGKILL recovery guarantee is implemented.
+
+Format 1 retains untransformed native payload bytes and relative layout alongside
+`BIOV_MODEL_RESOURCE.json` and `BIOV_MODEL_RESOURCE_README.md`. The strict record
+contains provider/repository type and identity, caller-supplied revision
+provenance, selected-files scope, sorted exact inventory with complete byte
+counts/SHA-256, actual client/version, observed invocation method/status, no BioV
+transformation, local companion-creation time, unknown original upstream download
+time, explicit uninterpreted model meaning, no code execution, verification trust
+limits and companion README byte identity. Native metadata remains authoritative
+when explicitly selected. The format-1 README template is immutable; inspection
+verifies its exact supported bytes. Unsupported versions, extra fields, changed
+scope/acquisition declarations, unrecorded payloads, unsafe roots, symlinks,
+special files and missing/changed inventory members fail.
+
+The optional `.cache/huggingface` subtree is upstream-owned private metadata,
+excluded from verification and not traversed or required for independent reading
+or exact BioV reuse. Copy/move both companions and every selected native payload
+together. The README's isolated Python standard-library reader validates the
+bounded schema, companion identity, exact tree and every complete payload, then
+summarizes all inventory records by suffix and bytes without BioV, Hugging Face,
+network, database or historical path. Native-format analysis needs an appropriate
+ordinary reader; retained opaque weights are not permission to unpickle or execute
+them. Source/client/schema/biological versions remain distinct. The revision was
+passed to `hf`; independent upstream revision resolution/authenticity and
+scientific QC are not performed. Checksums establish local consistency with the
+supplied record, never authentication of a record rewritten with different bytes.
+
+Bounds are 1–1,024 selected files, 512 UTF-8 bytes and 32 components per path,
+256 KiB aggregate selected path bytes, a 1 MiB record, a 32 KiB README and 65,536
+traversed entries outside excluded upstream metadata. Repository names are bounded
+to 192 ASCII bytes overall and 96 bytes per component. Hashing streams complete
+files with a 128 KiB buffer; no payload-size/disk cap, process-wide peak-memory
+guarantee or quantitative speed claim follows. Filesystem checks assume a trusted
+root without hostile concurrent writers, not an OS sandbox. This separate slice
+does not hydrate D13 native stores, migrate old caches or add a model MCP/Python
+loading interface. See `docs/guides/model-resources.md` for the exact supported
+commands and current acceptance evidence.
+
+### D16 acceptance cases
+
+```gherkin
+Feature: Explicit model files acquired upstream and usable as portable data
+  Scenario: Select exact native files with installed-client preference
+    Given a compatible installed official hf and an explicit full Git commit
+    When I download an explicit list of relative model files to a new directory
+    Then BioV invokes that client with literal argv and fresh absolute local-dir
+    And complete unchanged payloads and portable companions are published together
+    And progress stays on stderr and one complete result JSON is emitted on stdout
+    Given no compatible implicit installed hf
+    Then existing uv supplies the pinned upstream client with SOCKS support
+    And explicit incompatible clients and no-install do not silently provision
+
+  Scenario: Move complete resources and read offline without BioV
+    Given a verified selected-file resource with all inventory and companions
+    When I move it, remove the old location and remove BioV from the reader
+    Then the standard-library reader verifies every complete file and the record
+    And summarizes all inventory bytes and selected native JSON metadata offline
+    And no model weights are deserialized or downloaded code is executed
+    When I request the exact saved selection again
+    Then complete verified reuse needs neither hf nor uv nor upstream access
+
+  Scenario: Fail without overwriting or using stale local data
+    Given malformed selection, symlinked ancestors or an unrelated destination
+    Then preflight rejects the request before invoking the client
+    Given client failure, missing/extra payloads or a concurrent destination
+    Then no new successful resource is published and the destination is unchanged
+    And unpublished staging is retained with honest diagnostics
+    And retry starts in another fresh directory rather than using stale payloads
+    Given changed companions, schema, selected bytes or recorded selection
+    Then inspect or reuse fails unchanged without network repair
+```
+
 ## §I INTERFACES
 The following entries describe the existing Python interfaces unless marked
 otherwise. The independent Rust MCP dataset route is specified in D12 and tracked
 in T63–T67; the native dataset guide records its verified scope.
 
+- native cmd: `biov model download --revision COMMIT --local-dir DIR [--hf FILE] [--uv FILE] [--no-install] REPO FILE...` → D16 exact selected native Hugging Face model files, installed compatible official hf first and pinned upstream uv fallback, fresh absolute staging and Linux x86_64 no-replace publication; options precede repository, no model execution/full-model claim
+- native cmd: `biov model inspect DIR` → strict portable record/README and complete selected-file byte verification offline, without hf/uv/Python/network; success emits one JSON result, progress/errors use stderr and failures return 2
+- file: `<model-local-dir>/{BIOV_MODEL_RESOURCE.json,BIOV_MODEL_RESOURCE_README.md,<selected native relative files>}` → D16 format-1 exact relative inventory/acquisition facts/complete-byte SHA-256 and independent ordinary-reader summary; optional `.cache/huggingface` is excluded upstream metadata, not a reading dependency
 - native sequence tool: `dataset_fasta_windows` with configured native store → D15 exact prepared sequence windows, same-pass whole summary and D12 typed-table query/export/reopen; no Python analysis wrapper
 - native prepared API: `biov_prepared::PreparedStore::new(store_root)` and `prepare_fasta(PrepareFastaRequest)` → D14; CLI `biov prepared fasta --store-root DIR --request-file JSON` and MCP `prepared_fasta` are thin bounded adapters
 - native cmd: `biov storage register --store-root DIR --source-root DIR --request-file JSON` and `biov storage resolve --store-root DIR --request-file JSON` → thin adapters for D13, no downloads
@@ -1249,6 +1375,8 @@ V79: prepared reference indices preserve native bytes, use established format im
 
 V80: user-tool lifecycle adapters use only explicit BioV-root-owned upstream state: Pixi 0.81.0 global Samtools 1.24 and uv tool GOATOOLS 1.6.5 plus statsmodels 0.14.6 with paired installed Python; native manifests/receipts and human-readable list output remain authoritative; no custom install registry, runner, journal, JSON list, bin override or full transitive lock is introduced; no user-global manager setting or shell profile is changed; removal targets only the selected backend tool environment/commands and preserves caches, scientific data/results and separate locked workflows; base Python availability is required after management-wheel removal
 
+V81: model resources are exact caller-selected native files at a supplied full immutable Git commit, acquired through compatible installed official hf or pinned uv-owned fallback in fresh staging and published without replacement; offline exact reuse/inspect rehash complete files and portable immutable JSON/README companions without requiring BioV for ordinary reading; private upstream metadata, model completeness, execution, original acquisition time, independent upstream authenticity and scientific QC are outside the verified claim; no stale-local fallback, destructive repair or model cache lifecycle is introduced
+
 ## §T TASKS
 id|status|task|cites
 T1|x|write contracts & failing acceptance tests|I.*,V1,V2,V3,V4,V5,V6,V7,V8,V9,V10,V11,V12,V13
@@ -1330,6 +1458,8 @@ T71|planned|add further native semantic adapters and analysis-ready derived view
 T72|x|implement and independently validate D14 pinned RefSeq genome FASTA preparation with upstream noodles-fasta, conventional FAI/TSV outputs, bounded streaming, recipe invalidation, verified reuse, atomic publication and moved offline standard-reader acceptance; source-built Linux passes 25 prepared-core tests, 21 installed CLI/MCP cases and 10 independent portability cases including actual RefSeq and SIGKILL/retry; see prepared guide for adversarial coverage and explicit platform/input limits|D0,D9,D13,D14,V77,V78,V79
 
 T73|x|implement D15 exact prepared RefSeq sequence-window GC tables and same-pass whole counts, conservative allocation preflight, structured origin/known column meanings and existing full-query/export/reopen integration; all four installed Linux acceptance cases pass, including offline moved standalone PyArrow 25.0.1 analysis without BioV, actual E. coli complete 465-window counts and 400001-row rejection preserving all handle slots; see prepared guide for bounded scope and core validation|D0,D9,D10,D12,D13,D14,D15,V75,V77,V79
+
+T74|partial|recover the D16 thin Rust selected-model-file acquisition/inspect route, compatible installed hf preference and uv-owned huggingface-hub==2.1.1 plus httpx2[socks] fallback, full-commit/exact-file bounds, literal argv/caller cwd, fresh staging, complete-byte portable companions, exact offline reuse and no-replace/failure preservation; fresh Linux full-workspace tests pass including 10 model unit and 12 CLI cases, with warning-denied Clippy; actual official-client fallback downloads config.json (548 bytes) and tokenizer_config.json (321 bytes) from hf-internal-testing/tiny-random-bert at f171d7baecaf37b5da5a3616d8833b9969753535, and both source-built-binary model acceptance cases pass including complete moved real-bundle standard-library verification/native JSON analysis with BioV unavailable plus exact offline reuse/inspect under network-call denial; wheel/sdist boundary checks and unpacked-sdist Rust tests pass; production/rebuilt-sdist installed wheels each pass 507 cases with one separate real-Pixi lifecycle skip; Python 3.12/3.13/3.14 each pass 918 cases with 28 explicit opt-in skips, and strict hooks/docs pass; required CI, separate heterogeneous review and other platform releases remain unclaimed; no model execution or complete-model/authenticity claim|D0,D9,D16,V77,V81
 
 ## §B BUGS
 id|date|cause|fix

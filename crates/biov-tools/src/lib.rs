@@ -13,6 +13,8 @@ use std::{
 };
 
 mod installed;
+pub mod model_bundle;
+pub mod model_resources;
 
 pub const PIXI_VERSION: &str = "0.81.0";
 pub const SUPPORTED_TOOLS: &[&str] = &["samtools", "goatools"];
