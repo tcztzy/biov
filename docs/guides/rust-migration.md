@@ -21,6 +21,24 @@ GOATOOLS to isolated uv tool. The managers own entrypoints, inventory and remova
 of selected user-tool environments; scientific data and separate locked workflows
 remain untouched. These installations pin primary packages and use upstream
 transitive resolution. Upgrades and general cache cleanup remain unimplemented.
+A separate [model-resource slice](model-resources.md) delegates exact selected
+Hugging Face model files at a full caller-supplied Git commit to official `hf`,
+with an installed-client-first, pinned uv fallback and portable JSON/README
+companions. Offline inspection and exact reuse hash all selected bytes; BioV
+neither executes model code nor claims complete-model availability or upstream
+authenticity. Linux x86_64 download publication is the initial scope. Fresh Linux
+full-workspace Rust tests pass, including 10 model unit and 12 CLI cases, and
+the actual official pinned fallback acquired the two-file public configuration
+fixture (D16/T74). Both model acceptance cases pass with the source-built Linux
+binary, including exact offline reuse/inspect and complete independent moved
+real-bundle reading under network-call denial with BioV unavailable. The
+independently installed production and rebuilt-sdist wheels each pass 507
+installed cases outside the checkout (one separate real-Pixi lifecycle case
+skipped), including actual model-file acquisition and moved-reader acceptance.
+The complete Python suite passes on 3.12/3.13/3.14 with 918 passed and 28 opt-in
+skips on each; strict hooks/docs and package boundaries pass. Required CI,
+separate external review and other platform releases remain unclaimed; this
+does not establish broad distribution or complete-model support.
 The rest of the rewrite remains planned; pandas, Biopython and RuRanges'
 Rust-backed interval kernels still support unmigrated features.
 
@@ -162,7 +180,16 @@ satisfy SPEC D0. The new Rust result companions do not retroactively change them
   query was aligned to the same reference. Add these facts and validation before
   treating such a cache as independently interpretable or safely transferable
 
-Software/model caches and other output writers need the same per-slice inventory
+The opt-in native model-resource route is a new selected-file contract, not an
+automatic migration of old model caches. Its portable companions make exact
+retained files and unknowns discoverable; they do not describe a complete model
+or substitute for selected provider-native documentation. Separate acceptance
+must move the complete selection, remove the original location and BioV, verify
+all recorded bytes with the supplied standard-library reader and analyze native
+metadata without loading a model. This route's actual validation status is in
+the [model-resource guide](model-resources.md#bounds-and-acceptance-scope).
+
+Other software/model caches and output writers need the same per-slice inventory
 when migrated; this audit is not evidence of their compliance. Native manager
 locks or source checkouts can supply useful version facts but do not replace a
 data-specific meaning/usage contract. Do not serialize a BioV/Python object as the

@@ -16,6 +16,9 @@ coordinates, units and complete data.
   entry points, with [recorded local setup inspection](docs/guides/environments.md#native-rust-locked-tool-migration)
 - Resolve biological identifiers to native provider files and reusable local
   artifacts, with Python and fsspec access
+- Retain explicitly selected Hugging Face [model resource files](docs/guides/model-resources.md)
+  at a full immutable Git commit through official `hf`, with portable
+  checksums/README and offline complete-byte inspection; no model execution
 - Work with genomic intervals and explicitly typed DNA, RNA and protein sequences
 - Run local managed Python analyses, retain complete outputs and records, and
   inspect bounded previews through Python, CLI or MCP
@@ -118,6 +121,30 @@ Python interpreter. Install the complete wheel for Python-backed capabilities.
 Run an ordinary script with `biov run analysis.py`; use
 `biov run --executor lsf analysis.py` for an LSF submission receipt. A receipt is
 not a completion result. Managed analysis is a separate, currently local path.
+
+## Selected model files
+
+The Rust-native model route delegates acquisition to official `hf`. It prefers a
+compatible installed client; otherwise an existing uv supplies
+`huggingface-hub==2.1.1` with upstream SOCKS support in its on-demand environment.
+Initial downloads support Linux x86_64. Select exact files and a full immutable
+commit, using a new destination:
+
+```sh
+biov model download \
+  --revision f171d7baecaf37b5da5a3616d8833b9969753535 \
+  --local-dir ./tiny-bert-config \
+  hf-internal-testing/tiny-random-bert config.json tokenizer_config.json
+biov model inspect ./tiny-bert-config
+```
+
+These example commands select only configuration, not weights or a complete
+model. Inspect and exact verified reuse are offline; the saved native files,
+relative checksum record and standard-reader README remain usable after moving
+the directory and removing BioV. No downloaded model code is executed, and
+checksums do not establish upstream authenticity or scientific quality. See the
+[model resource guide](docs/guides/model-resources.md) for client selection,
+`--no-install`, failure retention, format bounds and current acceptance status.
 
 ## Python data APIs
 
