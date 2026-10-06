@@ -21,6 +21,9 @@ site/
 # macOS
 .DS_Store
 
+# Isolated development-only readiness tooling
+/.github/agentrc/node_modules/
+
 # Rust build products
 target/
 *.so
