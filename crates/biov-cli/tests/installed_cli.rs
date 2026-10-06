@@ -6,19 +6,34 @@ use std::{
     os::unix::fs::PermissionsExt,
     path::{Path, PathBuf},
     process::{Command, Output},
-    sync::OnceLock,
+    sync::{Arc, Mutex, Weak},
 };
 
-static FIXTURE: OnceLock<tempfile::TempDir> = OnceLock::new();
+static FIXTURE: Mutex<Weak<tempfile::TempDir>> = Mutex::new(Weak::new());
 
-fn manager(directory: &Path, name: &str) -> PathBuf {
-    let source = FIXTURE.get_or_init(|| {
+fn prepare() -> Arc<tempfile::TempDir> {
+    let mut shared = FIXTURE.lock().unwrap();
+    if let Some(fixtures) = shared.upgrade() {
+        return fixtures;
+    }
+    let fixtures = Arc::new({
         let directory = tempfile::tempdir().unwrap();
         let script = directory.path().join("manager.py");
         fs::write(&script, include_bytes!("fixtures/fake_global_managers.py")).unwrap();
         fs::set_permissions(&script, fs::Permissions::from_mode(0o755)).unwrap();
+        fs::copy(env!("CARGO_BIN_EXE_biov"), directory.path().join("biov")).unwrap();
+        fs::write(
+            directory.path().join("python"),
+            "protocol interpreter placeholder",
+        )
+        .unwrap();
         directory
     });
+    *shared = Arc::downgrade(&fixtures);
+    fixtures
+}
+
+fn manager(source: &tempfile::TempDir, directory: &Path, name: &str) -> PathBuf {
     let manager = directory.join(name);
     std::os::unix::fs::symlink(source.path().join("manager.py"), &manager).unwrap();
     manager
@@ -35,17 +50,20 @@ fn successful(output: &Output) {
 
 #[test]
 fn public_lifecycle_delegates_to_isolated_upstream_managers() {
+    let fixtures = prepare();
     let dir = tempfile::tempdir().unwrap();
-    let pixi = manager(dir.path(), "fake-pixi");
-    let uv = manager(dir.path(), "fake-uv");
+    let pixi = manager(&fixtures, dir.path(), "fake-pixi");
+    let uv = manager(&fixtures, dir.path(), "fake-uv");
     let root = dir.path().join("environments 'literal'");
     let bin = dir.path().join("management-bin");
     fs::create_dir(&bin).unwrap();
     let cli = bin.join("biov");
-    fs::copy(env!("CARGO_BIN_EXE_biov"), &cli).unwrap();
+    // Immutable template links create no live executable write descriptor after
+    // the common preparation barrier. Both temporary roots share the filesystem.
+    fs::hard_link(fixtures.path().join("biov"), &cli).unwrap();
     // Paired interpreter path selection is checked without launching Python;
     // actual installed-interpreter behavior belongs to the real wheel gate.
-    fs::write(bin.join("python"), "protocol interpreter placeholder").unwrap();
+    fs::hard_link(fixtures.path().join("python"), bin.join("python")).unwrap();
     let log = dir.path().join("calls.jsonl");
     let foreign_pixi = dir.path().join("foreign-pixi");
     let foreign_uv = dir.path().join("foreign-uv");
@@ -139,6 +157,7 @@ fn public_lifecycle_delegates_to_isolated_upstream_managers() {
 
 #[test]
 fn removed_custom_installer_options_and_private_runner_are_rejected() {
+    let _fixtures = prepare();
     for args in [
         vec!["install", "--bin-dir", "/tmp/ignored", "samtools"],
         vec!["list", "--json"],

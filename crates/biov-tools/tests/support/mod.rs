@@ -8,15 +8,19 @@ use std::{
 
 static FIXTURE: OnceLock<tempfile::TempDir> = OnceLock::new();
 
-/// Complete the one script write before any fixture subprocess can start.
-/// Parallel child creation can inherit another thread's live write descriptor,
-/// producing transient ETXTBSY even after the originating writer closes it.
+/// Complete both script writes behind one barrier before either backend starts.
+/// Separate initialization locks are insufficient: a child of one backend may
+/// inherit the other script's live write descriptor between fork and exec,
+/// producing ETXTBSY even after the originating writer closes it.
 pub fn prepare() -> &'static tempfile::TempDir {
     FIXTURE.get_or_init(|| {
         let directory = tempfile::tempdir().unwrap();
         let executable = directory.path().join("fixture.py");
         fs::write(&executable, include_bytes!("../fixtures/fake_pixi.py")).unwrap();
         fs::set_permissions(executable, fs::Permissions::from_mode(0o755)).unwrap();
+        let global = directory.path().join("global.py");
+        fs::write(&global, include_bytes!("../fixtures/fake_global.py")).unwrap();
+        fs::set_permissions(global, fs::Permissions::from_mode(0o755)).unwrap();
         directory
     })
 }
@@ -29,18 +33,10 @@ pub fn manager(directory: &Path) -> PathBuf {
     manager
 }
 
-#[allow(dead_code)] // This module is also included by locked-only integration suites.
-static GLOBAL_FIXTURE: OnceLock<tempfile::TempDir> = OnceLock::new();
 /// Upstream global/tool CLI fixture, kept separate from locked scientific exec.
 #[allow(dead_code)] // Used by the global backend suite, not locked-only suites.
 pub fn global_manager(directory: &Path, name: &str) -> PathBuf {
-    let fixture = GLOBAL_FIXTURE.get_or_init(|| {
-        let directory = tempfile::tempdir().unwrap();
-        let executable = directory.path().join("global.py");
-        fs::write(&executable, include_bytes!("../fixtures/fake_global.py")).unwrap();
-        fs::set_permissions(executable, fs::Permissions::from_mode(0o755)).unwrap();
-        directory
-    });
+    let fixture = prepare();
     let manager = directory.join(name);
     std::os::unix::fs::symlink(fixture.path().join("global.py"), &manager).unwrap();
     manager
