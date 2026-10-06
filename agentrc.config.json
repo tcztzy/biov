@@ -1,0 +1,9 @@
+{
+  "areas": [
+    {
+      "name": "python",
+      "applyTo": "src/**",
+      "description": "Python package and installed-interpreter bridge"
+    }
+  ]
+}

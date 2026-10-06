@@ -250,6 +250,26 @@ uv run --locked prek run --all-files
 uv build
 ```
 
+An advisory [AgentRC](https://github.com/microsoft/agentrc) report runs separately
+from those engineering gates. Its prerelease CLI and transitive dependencies are
+pinned in `.github/agentrc/package.json` and `package-lock.json`, outside BioV's
+runtime dependencies. With Node.js 22+ and npm:
+
+```sh
+npm --prefix .github/agentrc ci --ignore-scripts --omit=optional --no-audit --no-fund
+npm --prefix .github/agentrc test
+npm --prefix .github/agentrc run --silent report > /tmp/biov-readiness.json
+```
+
+The local policy checks Rust/Python command and configuration presence, including
+both lockfiles. It does not execute or certify builds, scientific tests or type
+checking. The report may still suggest irrelevant Node/agent tooling. No maturity
+level or pass-rate threshold gates CI; generated JSON is an uncommitted CI artifact.
+Official `agentrc init` was inspected, not executed: its default instruction
+generation uses Copilot and its other selections create editor/MCP settings.
+The official-schema `agentrc.config.json` adds the Python source area alongside
+automatically detected Cargo crates. Readiness needs no model login or calls.
+
 The current source distribution includes package sources, resources, tests and
 documentation, Cargo sources and the lockfile. Plugin files are distributed through
 Git. Setuptools-rust builds the native extension and the Rust `biov` executable. Installing a BioV wheel does not compile
