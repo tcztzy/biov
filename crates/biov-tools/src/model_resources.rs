@@ -267,7 +267,8 @@ pub fn download(request: &ModelDownload) -> Result<ModelResourceResult, String> 
     }
     if std::env::var_os("HUGGINGFACE_CO_STAGING").is_some_and(|staging| {
         staging.to_str().is_none_or(|value| {
-            ["1", "ON", "YES", "TRUE"].contains(&value.to_ascii_uppercase().as_str())
+            // Match upstream Python str.upper(), including Unicode such as yeſ.
+            ["1", "ON", "YES", "TRUE"].contains(&value.to_uppercase().as_str())
         })
     }) {
         return Err(

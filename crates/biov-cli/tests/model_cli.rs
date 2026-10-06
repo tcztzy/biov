@@ -383,7 +383,7 @@ fn symlinked_destination_ancestors_are_rejected_before_backend_access() {
 
 #[test]
 fn staging_source_override_is_rejected_and_disabled_mode_is_allowed() {
-    for value in ["1", "ON", "yes", "true"] {
+    for value in ["1", "ON", "yes", "true", "yeſ"] {
         let f = Fixture::new();
         let output = f
             .command()
