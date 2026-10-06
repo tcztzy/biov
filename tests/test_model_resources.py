@@ -8,6 +8,7 @@ the independent consumer uses isolated standard-library Python without BioV.
 
 import json
 import os
+import platform
 import shutil
 import subprocess
 import sys
@@ -20,8 +21,10 @@ BINARY = os.environ.get("BIOV_TEST_BINARY", "")
 REVISION = "f171d7baecaf37b5da5a3616d8833b9969753535"
 FILES = ["config.json", "tokenizer_config.json"]
 pytestmark = pytest.mark.skipif(
-    not BINARY or sys.platform != "linux",
-    reason="requires a separately installed Linux native BioV tool",
+    not BINARY
+    or sys.platform != "linux"
+    or platform.machine().lower() not in ("x86_64", "amd64"),
+    reason="requires a separately installed Linux x86_64 native BioV tool",
 )
 
 
@@ -135,8 +138,8 @@ def test_installed_selected_model_files_and_offline_reader(tmp_path):
     os.environ.get("BIOV_TEST_REAL_MODELS") != "1",
     reason="real public model-resource download is explicitly opt-in",
 )
-def test_real_public_configuration_download_reuse_and_moved_reader(tmp_path):
-    """Official acquisition yields complete native JSON without model execution."""
+def test_real_pinned_uv_fallback_download_reuse_and_moved_reader(tmp_path):
+    """Pinned official fallback yields native JSON without model execution."""
     uv = os.environ.get("BIOV_TEST_REAL_UV") or shutil.which("uv")
     assert uv, "real model acceptance requires the official uv executable"
     bundle = tmp_path / "public configuration"
@@ -145,6 +148,16 @@ def test_real_public_configuration_download_reuse_and_moved_reader(tmp_path):
         environment.pop(name, None)
     for name in ("HF_HOME", "UV_TOOL_DIR", "UV_TOOL_BIN_DIR", "UV_CACHE_DIR"):
         environment[name] = str(tmp_path / name.lower())
+    # Keep Python and upstream helpers on PATH, but make the first hf candidate
+    # deliberately incompatible. --uv alone would still prefer an installed hf.
+    incompatible = tmp_path / "incompatible-installed-hf"
+    incompatible.mkdir()
+    hf = incompatible / "hf"
+    hf.write_text("#!/bin/sh\nprintf '3.0.0\\n'\n")
+    # write_text has closed the only writer before chmod or subprocess startup.
+    hf.chmod(0o755)
+    environment["PATH"] = str(incompatible) + os.pathsep + environment.get("PATH", "")
+    assert shutil.which("hf", path=environment["PATH"]) == str(hf)
     arguments = [
         BINARY,
         "model",
@@ -158,8 +171,12 @@ def test_real_public_configuration_download_reuse_and_moved_reader(tmp_path):
         "hf-internal-testing/tiny-random-bert",
         *FILES,
     ]
-    downloaded = _record(_run(arguments, tmp_path, environment))
+    acquisition = _run(arguments, tmp_path, environment)
+    downloaded = _record(acquisition)
     assert downloaded["status"] == "downloaded"
+    assert "using uv's pinned on-demand huggingface-hub==2.1.1" in acquisition.stderr
+    assert downloaded["resource"]["acquisition"]["client"] == "hf"
+    assert downloaded["resource"]["acquisition"]["client_version"] == "2.1.1"
     inventory = downloaded["resource"]["inventory"]
     assert [(item["path"], item["bytes"]) for item in inventory] == [
         ("config.json", 548),
