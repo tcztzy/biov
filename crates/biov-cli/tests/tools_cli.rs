@@ -1,7 +1,46 @@
 #![cfg(all(target_os = "linux", target_arch = "x86_64"))]
-use std::{fs, process::Command};
+use std::{fs, process::Command, sync::OnceLock};
 #[path = "../../biov-tools/tests/support/mod.rs"]
 mod support;
+
+static SIGNAL_FIXTURE: OnceLock<tempfile::TempDir> = OnceLock::new();
+
+fn signal_fixture() -> &'static tempfile::TempDir {
+    SIGNAL_FIXTURE.get_or_init(|| {
+        use std::os::unix::fs::PermissionsExt;
+        support::prepare();
+        let directory = tempfile::tempdir().unwrap();
+        let script = directory.path().join("signal.py");
+        fs::write(&script, SIGNAL_PROGRAM).unwrap();
+        fs::set_permissions(script, fs::Permissions::from_mode(0o755)).unwrap();
+        directory
+    })
+}
+
+fn binary() -> &'static str {
+    // All harness subprocesses wait until every executable fixture is closed.
+    signal_fixture();
+    env!("CARGO_BIN_EXE_biov")
+}
+
+const SIGNAL_PROGRAM: &str = r#"#!/usr/bin/env python3
+import json, os, pathlib, signal, subprocess, sys, time
+home = pathlib.Path.cwd()
+child = subprocess.Popen([sys.executable, '-c', "import pathlib,time; pathlib.Path('descendant-ready').write_text('ready'); time.sleep(60)"])
+def interrupted(number, frame):
+    child.wait(timeout=3)
+    (home / 'interrupted').write_text(str(number))
+    time.sleep(0.4)
+    sys.exit(128 + number)
+for number in (signal.SIGINT, signal.SIGTERM, signal.SIGHUP):
+    signal.signal(number, interrupted)
+while not (home / 'descendant-ready').exists():
+    time.sleep(0.005)
+(home / 'pids.pending').write_text(json.dumps([os.getpid(), child.pid]))
+(home / 'pids.pending').replace(home / 'pids.json')
+while True:
+    time.sleep(1)
+"#;
 
 #[test]
 fn native_cli_setup_inspection_literal_argv_and_status() {
@@ -9,7 +48,7 @@ fn native_cli_setup_inspection_literal_argv_and_status() {
     let pixi = support::manager(dir.path());
     let root = dir.path().join("environments");
     let run = |words: &[&str]| {
-        Command::new(env!("CARGO_BIN_EXE_biov"))
+        Command::new(binary())
             .args(words)
             .env("BIOV_ENVIRONMENT_ROOT", &root)
             .env("BIOV_PIXI_BIN", &pixi)
@@ -88,14 +127,11 @@ fn parser_errors_and_help_have_no_execution_side_effects() {
         vec!["tools", "exec", "--no-install", "--no-install", "samtools"],
         vec!["tools", "setup", "goatools", "--help"],
     ] {
-        let output = Command::new(env!("CARGO_BIN_EXE_biov"))
-            .args(args)
-            .output()
-            .unwrap();
+        let output = Command::new(binary()).args(args).output().unwrap();
         assert_eq!(output.status.code(), Some(2));
         assert!(output.stdout.is_empty());
     }
-    let output = Command::new(env!("CARGO_BIN_EXE_biov"))
+    let output = Command::new(binary())
         .args(["tools", "--help"])
         .output()
         .unwrap();
@@ -108,7 +144,6 @@ fn parser_errors_and_help_have_no_execution_side_effects() {
 fn direct_wrapper_interrupt_forwards_reaps_and_retains_workspace_lock() {
     use fs4::fs_std::FileExt;
     use std::{
-        os::unix::fs::PermissionsExt,
         process::{Child, Stdio},
         time::{Duration, Instant},
     };
@@ -135,14 +170,14 @@ fn direct_wrapper_interrupt_forwards_reaps_and_retains_workspace_lock() {
         let dir = tempfile::tempdir().unwrap();
         let pixi = support::manager(dir.path());
         let root = dir.path().join("environments");
-        let output = Command::new(env!("CARGO_BIN_EXE_biov"))
+        let output = Command::new(binary())
             .args(["tools", "exec", "samtools"])
             .env("BIOV_ENVIRONMENT_ROOT", &root)
             .env("BIOV_PIXI_BIN", &pixi)
             .output()
             .unwrap();
         assert_eq!(output.status.code(), Some(37));
-        let inspected = Command::new(env!("CARGO_BIN_EXE_biov"))
+        let inspected = Command::new(binary())
             .args(["tools", "inspect", "samtools"])
             .env("BIOV_ENVIRONMENT_ROOT", &root)
             .env("BIOV_PIXI_BIN", &pixi)
@@ -153,26 +188,12 @@ fn direct_wrapper_interrupt_forwards_reaps_and_retains_workspace_lock() {
                 .clone();
         let executable =
             std::path::Path::new(receipt["prefix"].as_str().unwrap()).join("bin/samtools");
-        fs::write(&executable, r#"#!/usr/bin/env python3
-import json, os, pathlib, signal, subprocess, sys, time
-home = pathlib.Path.cwd()
-child = subprocess.Popen([sys.executable, '-c', "import pathlib,time; pathlib.Path('descendant-ready').write_text('ready'); time.sleep(60)"])
-def interrupted(number, frame):
-    child.wait(timeout=3)
-    (home / 'interrupted').write_text(str(number))
-    time.sleep(0.4)
-    sys.exit(128 + number)
-for number in (signal.SIGINT, signal.SIGTERM, signal.SIGHUP):
-    signal.signal(number, interrupted)
-while not (home / 'descendant-ready').exists():
-    time.sleep(0.005)
-(home / 'pids.pending').write_text(json.dumps([os.getpid(), child.pid]))
-(home / 'pids.pending').replace(home / 'pids.json')
-while True:
-    time.sleep(1)
-"#).unwrap();
-        fs::set_permissions(&executable, fs::Permissions::from_mode(0o755)).unwrap();
-        let child = Command::new(env!("CARGO_BIN_EXE_biov"))
+        // The prepared fixture is immutable. Hardlinking it avoids a writable
+        // descriptor while sibling tests fork, and keeps a regular native file
+        // inside the verified prefix rather than a symlink escaping that prefix.
+        fs::remove_file(&executable).unwrap();
+        fs::hard_link(signal_fixture().path().join("signal.py"), &executable).unwrap();
+        let child = Command::new(binary())
             .args([
                 "tools",
                 "exec",
@@ -310,7 +331,7 @@ for delivery in ('direct', 'terminal'):
         if native_pid is not None and pathlib.Path(f'/proc/{native_pid}').exists():
             os.kill(native_pid, signal.SIGKILL)
         os.close(master)
-"#, env!("CARGO_BIN_EXE_biov"), dir.path().to_str().unwrap(), pixi.to_str().unwrap()])
+"#, binary(), dir.path().to_str().unwrap(), pixi.to_str().unwrap()])
         .output().unwrap();
     assert!(
         output.status.success(),

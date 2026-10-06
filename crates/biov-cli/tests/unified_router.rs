@@ -1,14 +1,70 @@
 //! Router boundary tests. The installed wheel acceptance separately verifies a
 //! real interpreter and RECORD pairing; the fake sibling here tests only argv,
 //! stdio and process-status transport.
-use std::{fs, process::Command};
+use std::process::Command;
+#[cfg(unix)]
+use std::{
+    fs,
+    sync::{Arc, Mutex, Weak},
+};
+
+#[cfg(unix)]
+static ROUTER_FIXTURES: Mutex<Weak<[tempfile::TempDir; 3]>> = Mutex::new(Weak::new());
+
+#[cfg(unix)]
+fn prepare_router_fixtures() -> Arc<[tempfile::TempDir; 3]> {
+    let mut shared = ROUTER_FIXTURES.lock().unwrap();
+    if let Some(fixtures) = shared.upgrade() {
+        return fixtures;
+    }
+    let fixtures = Arc::new({
+        use std::os::unix::fs::PermissionsExt;
+        let directories: [tempfile::TempDir; 3] =
+            std::array::from_fn(|_| tempfile::tempdir().unwrap());
+        for directory in &directories {
+            fs::copy(env!("CARGO_BIN_EXE_biov"), directory.path().join("biov")).unwrap();
+        }
+        for (directory, script) in [
+            (
+                &directories[0],
+                "#!/bin/sh\nprintf '%s\\n' \"$@\" >&2\ncat\nexit 37\n",
+            ),
+            (
+                &directories[1],
+                "#!/bin/sh\nprintf '%s\\n' \"$$\"\nexec /bin/sleep 30\n",
+            ),
+        ] {
+            let interpreter = directory.path().join("python");
+            fs::write(&interpreter, script).unwrap();
+            fs::set_permissions(interpreter, fs::Permissions::from_mode(0o755)).unwrap();
+        }
+        directories
+    });
+    *shared = Arc::downgrade(&fixtures);
+    fixtures
+}
 
 fn binary() -> &'static str {
     env!("CARGO_BIN_EXE_biov")
 }
 
+#[cfg(unix)]
+#[test]
+fn router_templates_are_complete_before_any_native_command_starts() {
+    let directories = prepare_router_fixtures();
+    let source = fs::read(binary()).unwrap();
+    for directory in directories.iter() {
+        assert_eq!(fs::read(directory.path().join("biov")).unwrap(), source);
+    }
+    assert!(directories[0].path().join("python").is_file());
+    assert!(directories[1].path().join("python").is_file());
+    assert!(!directories[2].path().join("python").exists());
+}
+
 #[test]
 fn native_help_lists_one_public_command_and_explicit_mcp_routes() {
+    #[cfg(unix)]
+    let _fixtures = prepare_router_fixtures();
     let output = Command::new(binary()).arg("--help").output().unwrap();
     assert!(output.status.success());
     assert!(output.stdout.is_empty());
@@ -29,6 +85,8 @@ fn native_help_lists_one_public_command_and_explicit_mcp_routes() {
 
 #[test]
 fn legacy_mcp_does_not_become_native_or_use_path_python() {
+    #[cfg(unix)]
+    let _fixtures = prepare_router_fixtures();
     let output = Command::new(binary())
         .args(["mcp", "--data-root", "input", "--output-root", "output"])
         .env("PATH", "")
@@ -43,6 +101,8 @@ fn legacy_mcp_does_not_become_native_or_use_path_python() {
 
 #[test]
 fn removed_top_setup_is_rejected_without_starting_python() {
+    #[cfg(unix)]
+    let _fixtures = prepare_router_fixtures();
     let output = Command::new(binary()).arg("setup").output().unwrap();
     assert_eq!(output.status.code(), Some(2));
     assert!(String::from_utf8(output.stderr)
@@ -53,19 +113,12 @@ fn removed_top_setup_is_rejected_without_starting_python() {
 #[cfg(unix)]
 #[test]
 fn paired_bridge_preserves_literal_argv_stdio_and_exit_status() {
-    use std::{io::Write, os::unix::fs::PermissionsExt, process::Stdio};
-    let temp = tempfile::tempdir().unwrap();
+    use std::{io::Write, process::Stdio};
+    let fixtures = prepare_router_fixtures();
+    let temp = &fixtures[0];
     let executable = temp.path().join("biov");
-    fs::copy(binary(), &executable).unwrap();
-    let interpreter = temp.path().join("python");
     // Deliberately no Python behavior: this fixture verifies the exact explicit
     // bridge command and pipe inheritance, not interpreter/package pairing.
-    fs::write(
-        &interpreter,
-        "#!/bin/sh\nprintf '%s\\n' \"$@\" >&2\ncat\nexit 37\n",
-    )
-    .unwrap();
-    fs::set_permissions(&interpreter, fs::Permissions::from_mode(0o755)).unwrap();
     let mut child = Command::new(&executable)
         .args([
             "python",
@@ -114,19 +167,12 @@ fn paired_bridge_preserves_literal_argv_stdio_and_exit_status() {
 fn python_bridge_replaces_process_and_receives_direct_signal() {
     use std::{
         io::{BufRead, BufReader},
-        os::unix::{fs::PermissionsExt, process::ExitStatusExt},
+        os::unix::process::ExitStatusExt,
         process::Stdio,
     };
-    let temp = tempfile::tempdir().unwrap();
+    let fixtures = prepare_router_fixtures();
+    let temp = &fixtures[1];
     let executable = temp.path().join("biov");
-    fs::copy(binary(), &executable).unwrap();
-    let interpreter = temp.path().join("python");
-    fs::write(
-        &interpreter,
-        "#!/bin/sh\nprintf '%s\\n' \"$$\"\nexec /bin/sleep 30\n",
-    )
-    .unwrap();
-    fs::set_permissions(&interpreter, fs::Permissions::from_mode(0o755)).unwrap();
     let mut child = Command::new(&executable)
         .arg("mcp")
         .stdout(Stdio::piped())
@@ -154,6 +200,8 @@ fn python_bridge_replaces_process_and_receives_direct_signal() {
 
 #[test]
 fn lifecycle_rejects_removed_custom_publication_options_without_side_effects() {
+    #[cfg(unix)]
+    let _fixtures = prepare_router_fixtures();
     let directory = tempfile::tempdir().unwrap();
     let root = directory.path().join("environments");
     for args in [
@@ -174,6 +222,8 @@ fn lifecycle_rejects_removed_custom_publication_options_without_side_effects() {
 
 #[test]
 fn empty_global_list_requires_no_managers_or_directory_creation() {
+    #[cfg(unix)]
+    let _fixtures = prepare_router_fixtures();
     let directory = tempfile::tempdir().unwrap();
     let root = directory.path().join("environments");
     let output = Command::new(binary())
@@ -193,9 +243,9 @@ fn empty_global_list_requires_no_managers_or_directory_creation() {
 #[cfg(all(target_os = "linux", target_arch = "x86_64"))]
 #[test]
 fn goatools_install_requires_paired_python_before_manager_or_root_mutation() {
-    let directory = tempfile::tempdir().unwrap();
+    let fixtures = prepare_router_fixtures();
+    let directory = &fixtures[2];
     let executable = directory.path().join("biov");
-    fs::copy(binary(), &executable).unwrap();
     let root = directory.path().join("environments");
     let output = Command::new(executable)
         .args([
